@@ -16,7 +16,9 @@ For modelling work, you need reliable help that matches your real environment an
 
 - "How do I do a basic LCA in Brightway from setup to first result?"
 - "How do I use premise for prospective LCA scenarios?"
-- "Check my ie-mcp environment and show my installed package versions."
+- "How do I use the function [...]?
+- "Explain what arguments the function takes in the package version that is currently installed in my environment."
+- ...
 
 ---
 
