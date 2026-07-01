@@ -1,4 +1,4 @@
-# ie-mcp
+# ie_mcp
 
 Using the ie_mcp server makes coding with Industrial Ecology packages, especially Brightway, much easier. It guides GitHub Copilot to the right package documentation for your question, so you avoid mixed package versions, wrong references, and hallucinated answers.
 
