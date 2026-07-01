@@ -8,7 +8,7 @@ An MCP server is a bridge between Copilot and trusted external information. In V
 
 **Currently supported packages:** The full **Brightway LCA ecosystem**, and additional industrial ecology tools — **56 packages total** (see [Brightway ecosystem](#brightway-ecosystem) and [Additional packages](#additional-packages) below)
 
-## Why this is needed
+## Why?
 
 For modelling work, you need reliable help that matches your real environment and package versions. This server gives environment- and version-relevant explanations for both single functions and complete IE package workflows. This makes going through pages of package documentation and checking its GitHub pages redundant. Just as Copilot about the package and get relevant explantion/coding help for the exact package version you are using.
 
@@ -44,7 +44,11 @@ cd ie-mcp
 
 #### VS Code (Copilot agent mode)
 
-The `.vscode/mcp.json` file is already configured. Open **this folder** as your workspace root in VS Code and Copilot agent mode picks up the server automatically — no manual startup needed.
+##### 1st Option: Use the mcp server from within this clonded (which then becomes your local) repository
+The `.vscode/mcp.json` file is already configured. Open **this folder** as your workspace root in VS Code and Copilot agent mode picks up the server automatically — no manual startup needed. This is recommended if you just want to get answers for questions.
+
+##### 2nd Option: Use the mcp server in your project
+If you want to use the server in your project to answer questions and help you code, you need to add the following to your project. The server will still run in the local cloned repository but you will have access to it within your project.
 
 > **Other workspaces / projects:** To use the server from a different project, add it to your VS Code user settings (`settings.json`) with an absolute path:
 >
@@ -67,15 +71,8 @@ The `.vscode/mcp.json` file is already configured. Open **this folder** as your 
 
 The server checks your **installed package versions** to look up the correct documentation and source code. It can only see packages installed in the Python interpreter specified in `mcp.json` (or user `settings.json`).
 
-**Rule of thumb:** set `command` to the same Python executable you use for your work.
-
-| Situation | What to set as `command` |
-|---|---|
-| conda env named `bw` | `C:\Users\you\miniconda3\envs\bw\python.exe` (Windows) or `/home/you/miniconda3/envs/bw/bin/python` (Linux/macOS) |
-| venv in project folder | `./venv/Scripts/python.exe` (Windows) or `./venv/bin/python` (Linux/macOS) |
-| uv project | `uv run python` (set `type: "stdio"` and prefix args accordingly) |
-
-Copilot will call `get_server_environment()` and return a full list of tracked packages with their installed versions, plus the active Python executable path. If a package shows **"not installed"**, update `command` in `mcp.json` and restart the server.
+**Your working environment:** set `command` to the same Python executable you use for your work.
+E.g.: conda (`C:\Users\you\miniconda3\envs\bw\python.exe`), venv in project folder (`./venv/Scripts/python.exe`)
 
 For best results, also add the instruction file (`.github/copilot-instructions.md`) in the .github folder to you repository. An instruction file is a short set of project-specific rules for Copilot (what tools to prefer, how to answer, what context matters most). This makes ie_mcp more efficient because Copilot is guided to use the server consistently and query package docs/versions in the way you want.
 
@@ -226,6 +223,8 @@ You can also add an addtional package yourself:
 4. Restart the server — the new package is discovered automatically.
 
 No changes to `server.py` or any core file are needed.
+
+Contibutions are welcome!
 
 ---
 
