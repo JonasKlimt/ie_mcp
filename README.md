@@ -10,7 +10,7 @@ An MCP server is a bridge between Copilot and trusted external information. In V
 
 ## Why?
 
-For modelling work, you need reliable help that matches your real environment and package versions. This server gives environment- and version-relevant explanations for both single functions and complete IE package workflows. This makes going through pages of package documentation and checking its GitHub pages redundant. Just as Copilot about the package and get relevant explantion/coding help for the exact package version you are using.
+For modelling work, you need reliable help that matches your real environment and package versions. This server gives environment- and version-relevant explanations for both single functions and complete IE package workflows. This makes going through pages of package documentation and checking its GitHub pages redundant. Copilot can access information about the package and get relevant explantion/coding help for the exact package version you are using.
 
 ## Example questions
 
