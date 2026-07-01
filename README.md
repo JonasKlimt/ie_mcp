@@ -36,7 +36,7 @@ pip install "mcp[cli]>=1.0.0" "httpx>=0.27.0" "beautifulsoup4>=4.12.0" "markdown
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ie-mcp.git
+git clone https://github.com/JonasKlimt/ie_mcp.git
 cd ie-mcp
 ```
 
@@ -231,4 +231,4 @@ No changes to `server.py` or any core file are needed.
 
 ## License
 
-The Unlicense (public domain dedication)
+BSD-3-Clause
