@@ -1,12 +1,32 @@
 # ie_mcp
 
-Using the ie_mcp server makes coding with Industrial Ecology packages, especially Brightway, much easier. It guides GitHub Copilot to the right package documentation for your question, so you avoid mixed package versions, wrong references, and hallucinated answers.
+![Python](https://img.shields.io/badge/python-%E2%89%A53.10-blue?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-BSD--3--Clause-green)
+![MCP](https://img.shields.io/badge/MCP-server-blueviolet)
+![Packages](https://img.shields.io/badge/packages-56-orange)
 
-An MCP (Model Context Protocol) server that explains Industrial Ecology Python packages through their documentation. Ask it anything about a registered package — installation, usage, API, concepts — directly from VS Code Copilot.
+Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology packages, especially Brightway, much easier. It guides GitHub Copilot to the right package documentation for your question, so you avoid mixed package versions, wrong references, and hallucinated answers. Ask it anything about a registered package (installation, usage, API, concepts) directly from VS Code Copilot.
 
-An MCP server is a bridge between Copilot and trusted external information. In VS Code Agent mode, Copilot can call this server to check package docs, source code, and versions before it answers.
+> [!NOTE] 
+> **What is an MCP server?**
+>
+> An MCP (Model Context Protocol) server is a bridge between Copilot and trusted external information. Check this link to learn more about MCP servers: https://modelcontextprotocol.io/docs/getting-started/intro. In the case of the ie_mcp server Copilot can call this server to check package docs, source code, and versions before it answers.
 
-**Currently supported packages:** The full **Brightway LCA ecosystem**, and additional industrial ecology tools — **56 packages total** (see [Brightway ecosystem](#brightway-ecosystem) and [Additional packages](#additional-packages) below)
+**Currently supported packages:** The full Brightway LCA ecosystem, and additional industrial ecology tools — 56 packages total (see [Brightway ecosystem](#brightway-ecosystem) and [Additional packages](#additional-packages) below)
+
+<details>
+<summary>📋 Table of contents</summary>
+
+- [Why?](#why)
+- [Example questions](#example-questions)
+- [Prerequisites](#prerequisites)
+- [Setup](#setup)
+- [GitHub token (optional)](#github-token-optional)
+- [How the server works](#how-the-server-works)
+- [Brightway ecosystem](#brightway-ecosystem)
+- [Additional packages](#additional-packages)
+
+</details>
 
 ## Why?
 
@@ -42,12 +62,10 @@ cd ie-mcp
 
 ### 2. Connect to your AI client
 
-#### VS Code (Copilot agent mode)
-
-##### 1st Option: Use the mcp server from within this clonded (which then becomes your local) repository
+#### 1st Option: Use the mcp server from within this clonded (which then becomes your local) repository
 The `.vscode/mcp.json` file is already configured. Open **this folder** as your workspace root in VS Code and Copilot agent mode picks up the server automatically — no manual startup needed. This is recommended if you just want to get answers for questions.
 
-##### 2nd Option: Use the mcp server in your project
+#### 2nd Option: Use the mcp server in your project
 If you want to use the server in your project to answer questions and help you code, you need to add the following to your project. The server will still run in the local cloned repository but you will have access to it within your project.
 
 > **Other workspaces / projects:** To use the server from a different project, add it to your VS Code user settings (`settings.json`) with an absolute path:
@@ -71,16 +89,19 @@ If you want to use the server in your project to answer questions and help you c
 
 The server checks your **installed package versions** to look up the correct documentation and source code. It can only see packages installed in the Python interpreter specified in `mcp.json` (or user `settings.json`).
 
-**Your working environment:** set `command` to the same Python executable you use for your work.
-E.g.: conda (`C:\Users\you\miniconda3\envs\bw\python.exe`), venv in project folder (`./venv/Scripts/python.exe`)
+> [!WARNING]
+> **Your working environment:** set `command` to the same Python executable you use for your work.
+> E.g.: conda (`C:\Users\you\miniconda3\envs\bw\python.exe`), venv in project folder (`./venv/Scripts/python.exe`)
 
-For best results, also add the instruction file (`.github/copilot-instructions.md`) in the .github folder to you repository. An instruction file is a short set of project-specific rules for Copilot (what tools to prefer, how to answer, what context matters most). This makes ie_mcp more efficient because Copilot is guided to use the server consistently and query package docs/versions in the way you want.
+> [!NOTE]
+> For best results, also add the instruction file (`.github/copilot-instructions.md`) in the .github folder to you repository. An instruction file is a short set of project-specific rules for Copilot (what tools to prefer, how to answer, what context matters most). This makes ie_mcp more efficient because Copilot is guided to use the server consistently and query package docs/versions in the way you want.
 
 ---
 
 ## GitHub token (optional)
 
-The `search_source` and `get_function_source` tools use the GitHub REST API. Without a token, GitHub allows **60 requests/hour** — enough for light use. Add a free personal access token to raise the limit to **5 000 requests/hour**.
+> [!TIP]
+> The `search_source` and `get_function_source` tools use the GitHub REST API. Without a token, GitHub allows **60 requests/hour** — enough for light use. Add a free personal access token to raise the limit to **5 000 requests/hour**.
 
 1. Go to [github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
 2. Click **Generate new token (classic)**, give it a name, set an expiry — **no scopes needed** for public repos.
@@ -105,7 +126,8 @@ The `search_source` and `get_function_source` tools use the GitHub REST API. Wit
 ```
 
 
-> **Important:** Do not commit `.vscode/mcp.json` after adding your token. The empty-token version is checked in so other users get a working starting point; your filled-in version is for local use only.
+> [!IMPORTANT]
+> Do not commit `.vscode/mcp.json` after adding your token. The empty-token version is checked in so other users get a working starting point; your filled-in version is for local use only.
 
 
 ## How the server works
@@ -155,6 +177,9 @@ These are the direct dependencies installed by `pip install brightway25`:
 
 ### Additional brightway-lca packages
 
+<details>
+<summary>Show all 23 packages</summary>
+
 | Package key | Description |
 |---|---|
 | `bw_temporalis` | Time-explicit LCA (Brightway 2.5) |
@@ -181,11 +206,16 @@ These are the direct dependencies installed by `pip install brightway25`:
 | `brightway2_speedups` | Cython performance extensions for BW2 |
 | `brightway2_ui` | CLI tool for Brightway2 |
 
+</details>
+
 ---
 
 ## Additional packages
 
 ### LCA tools
+
+<details>
+<summary>Show 4 packages</summary>
 
 | Package key | GitHub | Docs | Description |
 |---|---|---|---|
@@ -194,13 +224,20 @@ These are the direct dependencies installed by `pip install brightway25`:
 | `pathways` | [pathways](https://github.com/polca/pathways) | [readthedocs](https://pathways.readthedocs.io/en/latest/index.html) | Scenario-driven transformations for LCI datasets and workflows, designed for prospective and pathway-based LCA use cases. |
 | `regioinvent` | [Regioinvent](https://github.com/CIRAIG/Regioinvent) | GitHub README | Automatically regionalizes ecoinvent by connecting it to the BACI trade database, creating national production processes and consumption markets. |
 
+</details>
+
 ### Material flow analysis (MFA)
+
+<details>
+<summary>Show 3 packages</summary>
 
 | Package key | GitHub | Docs | Description |
 |---|---|---|---|
 | `flodym` | [flodym](https://github.com/pik-piam/flodym) | [readthedocs](https://flodym.readthedocs.io/en/latest/) | Flexible Open Dynamic Material Systems Model — Python library for dynamic MFA with dimension-aware arrays (FlodymArray), stock accumulation with age-cohort tracking, and Pydantic-typed system setup. Adaptation of ODYM. |
 | `odym` | [ODYM](https://github.com/IndEcol/ODYM) | [readthedocs](https://odym.readthedocs.io/en/latest/) | Open Dynamic Material Systems Model — Python framework for dynamic material flow analysis with object-based system description and dynamic stock modeling. |
 | `recc_odym` | [RECC-ODYM](https://github.com/IndEcol/RECC-ODYM) | GitHub README | Resource Efficiency–Climate Change mitigation model built on ODYM. Dynamic MFA of vehicles and buildings across SSP scenarios; assesses 10 material efficiency strategies. |
+
+</details>
 
 ### Environmentally extended input output analysis
 
