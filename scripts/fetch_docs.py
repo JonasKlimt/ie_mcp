@@ -32,10 +32,10 @@ sys.path.insert(0, str(ROOT))
 from core.cache import refresh_page  # noqa: E402
 from core.registry import PackageRegistry  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Main logic
 # ---------------------------------------------------------------------------
+
 
 def fetch_package(
     registry: PackageRegistry,

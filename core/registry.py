@@ -49,6 +49,17 @@ class PackageRegistry:
         entry = self._packages.get(package)
         return entry["metadata"] if entry else None
 
+    def pypi_name(self, package: str) -> str:
+        """Return the name a registered package is published under on PyPI.
+
+        Args:
+            package: Registry key of a registered package.
+
+        Returns:
+            The "name" entry of the metadata, or the registry key if there is none.
+        """
+        return self._packages[package]["metadata"].get("name", package)
+
     def get_sections(self, package: str) -> list[str]:
         meta = self.get_metadata(package)
         if not meta:
@@ -89,10 +100,7 @@ class PackageRegistry:
         meta = self.get_metadata(package)
         if not meta:
             return False
-        return any(
-            self._url_supports_versioning(s["url"])
-            for s in meta.get("sections", [])
-        )
+        return any(self._url_supports_versioning(s["url"]) for s in meta.get("sections", []))
 
     def get_section_url(self, package: str, section: str, version: str = "latest") -> str | None:
         section_info = self.get_section_info(package, section)

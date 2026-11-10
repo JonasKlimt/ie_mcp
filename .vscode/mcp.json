@@ -2,11 +2,8 @@
   "servers": {
     "ie-mcp": {
       "type": "stdio",
-      "command": "C:\\path\\to\\your\\python.exe",
-      "args": ["${workspaceFolder}/server.py"],
-      "env": {
-        "GITHUB_TOKEN": ""
-      }
+      "command": "uvx",
+      "args": ["--from", "${workspaceFolder}", "ie-mcp"]
     }
   }
 }

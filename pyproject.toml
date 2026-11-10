@@ -10,15 +10,27 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "BSD-3-Clause"
 dependencies = [
-    "mcp[cli]>=1.0.0",
+    "mcp[cli]>=1.0.0,<2",
     "httpx>=0.27.0",
     "beautifulsoup4>=4.12.0",
     "markdownify>=0.13.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
 [project.scripts]
 ie-mcp = "server:main"
 
 [tool.hatch.build.targets.wheel]
-# include root-level modules so the entry-point works after `pip install -e .`
-packages = ["."]
+# ship only what the server imports: server.py, core/ and the package registry
+only-include = ["server.py", "core", "packages"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["network: needs internet access (PyPI, GitHub, docs); skipped by default"]
+addopts = "-m 'not network'"
+
+[tool.black]
+line-length = 100

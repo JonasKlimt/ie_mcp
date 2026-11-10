@@ -1,35 +1,48 @@
 """
-GitHub API helpers for fetching and searching package source code.
+Reads package source code from GitHub at a tag, branch or HEAD (versions not on PyPI).
 
-Uses the GitHub REST API to:
-  - List repository tags (for version validation)
-  - Search code within a repository (find which file a function lives in)
-  - Fetch raw file contents at any tag/ref (base64-decoded via the contents API)
-  - Extract a specific function's source using Python's ast module
-
-Authentication:
-  Set the GITHUB_TOKEN environment variable for 5000 req/hr.
-  Without it the server falls back to unauthenticated (60 req/hr).
-
-Cache:
-  Raw source files are cached under .cache/source/{package}/{ref}/{path}.py
-  so default-branch and versioned files are stored separately.
+Takes a repository and a version; the Python files at that ref are downloaded into
+.cache/source/{package}/{ref}/. GITHUB_TOKEN is optional and only raises the rate limit.
 """
 
 from __future__ import annotations
 
-import ast
-import base64
+import json
 import os
-import textwrap
+import re
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 
+from .cache import cache_root
 
 _GITHUB_API = "https://api.github.com"
-ROOT = Path(__file__).resolve().parent.parent
-SOURCE_CACHE_ROOT = ROOT / ".cache" / "source"
+_GITHUB_RAW = "https://raw.githubusercontent.com"
+MAX_REPOSITORY_FILES = 500
+DOWNLOAD_WORKERS = 8
+
+_synced_refs: set[tuple[str, str]] = set()  # moving refs downloaded in this run
+
+
+@dataclass
+class RefFiles:
+    """The Python files of a repository at one git ref.
+
+    Attributes:
+        ref: Git ref that was used (tag, branch, commit or "HEAD").
+        root: Cache folder that holds the files.
+        paths: Absolute paths of the .py files inside the folder.
+        truncated: True if the repository has more files than were read.
+    """
+
+    ref: str
+    root: Path
+    paths: list[Path]
+    truncated: bool
+
 
 # ---------------------------------------------------------------------------
 # HTTP helpers
@@ -37,6 +50,11 @@ SOURCE_CACHE_ROOT = ROOT / ".cache" / "source"
 
 
 def _headers() -> dict[str, str]:
+    """Build the GitHub API request headers.
+
+    Returns:
+        Headers, with an Authorization entry if GITHUB_TOKEN is set.
+    """
     token = os.environ.get("GITHUB_TOKEN")
     base = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if token:
@@ -44,52 +62,41 @@ def _headers() -> dict[str, str]:
     return base
 
 
-def _get(url: str, params: dict | None = None, timeout: float = 20.0) -> dict | list:
+def _get(url: str, params: dict[str, Any] | None = None, timeout: float = 20.0) -> Any:
+    """Fetch a JSON document from the GitHub API.
+
+    Args:
+        url: Full URL of the API endpoint.
+        params: Query parameters.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        The decoded JSON document (a dict or a list).
+
+    Raises:
+        httpx.HTTPError: If the request fails.
+    """
     response = httpx.get(url, headers=_headers(), params=params, timeout=timeout)
     response.raise_for_status()
     return response.json()
 
 
 # ---------------------------------------------------------------------------
-# Cache helpers  (keyed by ref so default-branch and versioned files coexist)
-# ---------------------------------------------------------------------------
-
-
-def _source_cache_path(package: str, file_path: str, ref: str = "HEAD") -> Path:
-    # Sanitise ref so it is safe as a directory name (e.g. "v2.1.0" → "v2.1.0")
-    safe_ref = ref.replace("/", "_")
-    return SOURCE_CACHE_ROOT / package / safe_ref / file_path
-
-
-def _read_source_cache(package: str, file_path: str, ref: str = "HEAD") -> str | None:
-    path = _source_cache_path(package, file_path, ref)
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    # Backward-compat: old cache had no ref subdirectory
-    if ref == "HEAD":
-        old_path = SOURCE_CACHE_ROOT / package / file_path
-        if old_path.exists():
-            return old_path.read_text(encoding="utf-8")
-    return None
-
-
-def _write_source_cache(package: str, file_path: str, content: str, ref: str = "HEAD") -> None:
-    path = _source_cache_path(package, file_path, ref)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-# ---------------------------------------------------------------------------
-# GitHub API calls
+# Tags and refs
 # ---------------------------------------------------------------------------
 
 
 def list_tags(github_repo: str) -> list[str]:
-    """
-    Return all tag names for a GitHub repository, most recent first.
+    """List the tag names of a GitHub repository, most recent first.
 
     Args:
         github_repo: Repository in "owner/repo" format.
+
+    Returns:
+        Up to 100 tag names.
+
+    Raises:
+        httpx.HTTPError: If the request fails.
     """
     owner, repo = github_repo.split("/", 1)
     data = _get(f"{_GITHUB_API}/repos/{owner}/{repo}/tags", params={"per_page": 100})
@@ -97,11 +104,19 @@ def list_tags(github_repo: str) -> list[str]:
 
 
 def resolve_version_to_tag(github_repo: str, version: str) -> str | None:
-    """
-    Find a GitHub tag that matches the requested version string.
+    """Find the GitHub tag that matches a version string.
 
-    Tries exact match first, then with a 'v' prefix (e.g. '2.1.0' → 'v2.1.0').
-    Returns the matching tag name, or None if not found.
+    Tries an exact match first, then with a "v" prefix (2.1.0 → v2.1.0).
+
+    Args:
+        github_repo: Repository in "owner/repo" format.
+        version: Version string to look for.
+
+    Returns:
+        The matching tag name, or None if there is none.
+
+    Raises:
+        httpx.HTTPError: If the tag list cannot be fetched.
     """
     tags = list_tags(github_repo)
     if version in tags:
@@ -112,179 +127,184 @@ def resolve_version_to_tag(github_repo: str, version: str) -> str | None:
     return None
 
 
-def search_code(github_repo: str, query: str) -> list[dict]:
-    """
-    Search for code in a GitHub repository (always searches the default branch).
-
-    Returns a list of results with keys: name, path, url, html_url.
-    At most 10 results.
+def resolve_ref(github_repo: str, version: str) -> tuple[str, bool]:
+    """Turn a requested version into a git ref.
 
     Args:
         github_repo: Repository in "owner/repo" format.
-        query:       Search string (e.g. a function name or keyword).
+        version: Version, tag, branch or commit, or "HEAD" for the default branch.
+
+    Returns:
+        The git ref and whether it is a tag. A version without a matching tag is
+        returned unchanged, because it may be a branch or a commit.
+
+    Raises:
+        httpx.HTTPError: If the tag list cannot be fetched.
     """
-    data = _get(
-        f"{_GITHUB_API}/search/code",
-        params={"q": f"{query} repo:{github_repo}", "per_page": 10},
-    )
-    items = data.get("items", [])
-    return [
-        {
-            "name": item["name"],
-            "path": item["path"],
-            "url": item["url"],
-            "html_url": item["html_url"],
-        }
-        for item in items
+    if version.upper() == "HEAD":
+        return "HEAD", False
+    tag = resolve_version_to_tag(github_repo, version)
+    return (tag, True) if tag else (version, False)
+
+
+# ---------------------------------------------------------------------------
+# Files at a ref
+# ---------------------------------------------------------------------------
+
+
+def list_python_paths(github_repo: str, ref: str) -> tuple[list[str], bool]:
+    """List the paths of the Python files in a repository at a git ref.
+
+    Args:
+        github_repo: Repository in "owner/repo" format.
+        ref: Tag, branch, commit or "HEAD".
+
+    Returns:
+        Repository-relative paths of at most MAX_REPOSITORY_FILES .py files, and
+        whether the repository has more than that.
+
+    Raises:
+        httpx.HTTPError: If the ref does not exist or the API call fails.
+    """
+    tree = _get(f"{_GITHUB_API}/repos/{github_repo}/git/trees/{ref}", params={"recursive": "1"})
+    paths = [
+        item["path"]
+        for item in tree["tree"]
+        if item["type"] == "blob" and item["path"].endswith(".py")
     ]
+    return paths[:MAX_REPOSITORY_FILES], len(paths) > MAX_REPOSITORY_FILES
 
 
-def get_file_source(package: str, github_repo: str, file_path: str, ref: str = "HEAD") -> str:
-    """
-    Fetch the raw source of a file from GitHub at a specific ref, with caching.
+def _safe_folder_name(ref: str) -> str:
+    """Turn a version or git ref into a name that is safe as one folder.
 
     Args:
-        package:     Package name (used for cache directory).
-        github_repo: Repository in "owner/repo" format.
-        file_path:   Path to the file within the repository.
-        ref:         Git ref (tag, branch, or commit SHA). Defaults to HEAD.
+        ref: Version, tag, branch or commit.
+
+    Returns:
+        The ref with every character outside letters, digits and "._+-" replaced.
+
+    Raises:
+        ValueError: If the ref is empty or contains "..".
     """
-    cached = _read_source_cache(package, file_path, ref)
+    if not ref or ".." in ref:
+        raise ValueError(f"'{ref}' is not a valid version or git ref.")
+    return re.sub(r"[^A-Za-z0-9._+-]", "_", ref)
+
+
+def ref_cache_path(package: str, ref: str) -> Path:
+    """Return the cache folder for the files of a package at one git ref.
+
+    Args:
+        package: Package name (used for the cache directory).
+        ref: Tag, branch, commit or "HEAD".
+
+    Returns:
+        Path of .cache/source/{package}/{ref}/ (it may not exist yet).
+
+    Raises:
+        ValueError: If the ref is not usable as a folder name.
+    """
+    return cache_root() / "source" / package / _safe_folder_name(ref)
+
+
+def _tag_index_path(package: str, version: str) -> Path:
+    """Return the file that remembers which files a tagged version consists of.
+
+    Args:
+        package: Package name (used for the cache directory).
+        version: Version as requested by the caller.
+
+    Returns:
+        Path of .cache/source/{package}/_index/{version}.json.
+
+    Raises:
+        ValueError: If the version is not usable as a file name.
+    """
+    return cache_root() / "source" / package / "_index" / f"{_safe_folder_name(version)}.json"
+
+
+def _read_tag_index(package: str, version: str) -> RefFiles | None:
+    """Load a fully cached tagged version without calling GitHub.
+
+    Args:
+        package: Package name (used for the cache directory).
+        version: Version as requested by the caller.
+
+    Returns:
+        The cached files, or None if this version was not cached as a tag.
+
+    Raises:
+        ValueError: If the version is not usable as a file name.
+    """
+    index_path = _tag_index_path(package, version)
+    if not index_path.is_file():
+        return None
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    root = ref_cache_path(package, index["ref"])
+    return RefFiles(index["ref"], root, [root / p for p in index["paths"]], index["truncated"])
+
+
+def _download_file(client: httpx.Client, github_repo: str, ref: str, path: str, root: Path) -> None:
+    """Download one raw file from GitHub into the cache folder.
+
+    Args:
+        client: Open HTTP client.
+        github_repo: Repository in "owner/repo" format.
+        ref: Tag, branch, commit or "HEAD".
+        path: Repository-relative path of the file.
+        root: Cache folder of this ref.
+
+    Raises:
+        httpx.HTTPError: If the download fails.
+    """
+    response = client.get(f"{_GITHUB_RAW}/{github_repo}/{ref}/{path}")
+    response.raise_for_status()
+    target = root / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(response.content)
+
+
+def fetch_ref_files(package: str, github_repo: str, version: str) -> RefFiles:
+    """Download the Python files of a repository at a version into the cache.
+
+    A tag is downloaded once and later served without any GitHub request. A
+    branch or HEAD is downloaded again in every server run, because it moves.
+
+    Args:
+        package: Package name (used for the cache directory).
+        github_repo: Repository in "owner/repo" format.
+        version: Version, tag, branch or commit, or "HEAD" for the default branch.
+
+    Returns:
+        The git ref that was used and its cached .py files.
+
+    Raises:
+        ValueError: If the version is not usable as a folder name.
+        httpx.HTTPError: If the ref does not exist or a request fails.
+    """
+    cached = _read_tag_index(package, version)
     if cached is not None:
         return cached
 
-    owner, repo = github_repo.split("/", 1)
-    params = {"ref": ref} if ref != "HEAD" else None
-    data = _get(f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{file_path}", params=params)
-    if isinstance(data, dict) and data.get("encoding") == "base64":
-        content = base64.b64decode(data["content"]).decode("utf-8")
-    else:
-        raise ValueError(f"Unexpected response format for '{file_path}' at ref '{ref}'")
+    ref, is_tag = resolve_ref(github_repo, version)
+    root = ref_cache_path(package, ref)
+    paths, truncated = list_python_paths(github_repo, ref)
+    reuse_cache = is_tag or (github_repo, ref) in _synced_refs
+    missing = [path for path in paths if not (reuse_cache and (root / path).is_file())]
 
-    _write_source_cache(package, file_path, content, ref)
-    return content
-
-
-# ---------------------------------------------------------------------------
-# AST-based function extraction
-# ---------------------------------------------------------------------------
-
-
-def extract_function(source: str, function_name: str) -> str | None:
-    """
-    Extract the source code of a named function or method from Python source.
-
-    Searches top-level functions first, then methods inside any class.
-    Returns the dedented source string, or None if not found.
-    """
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return None
-
-    lines = source.splitlines(keepends=True)
-
-    def _node_source(node: ast.AST) -> str:
-        start = node.lineno - 1
-        end = node.end_lineno
-        return textwrap.dedent("".join(lines[start:end]))
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            if node.name == function_name:
-                return _node_source(node)
-
-    return None
-
-
-def find_and_extract_function(
-    package: str,
-    github_repo: str,
-    function_name: str,
-    version: str | None = None,
-) -> dict:
-    """
-    Search a repository for a function by name, fetch the file (optionally at a
-    specific version tag), and return its source code plus metadata.
-
-    Workflow:
-      1. Search the default branch to find which file contains the function.
-      2. If a version is given, validate it against GitHub tags.
-      3. Fetch that file at the resolved tag ref.
-      4. Extract the function via AST.
-
-    Returns a dict with keys: function, file, html_url, version, source.
-    On failure, returns a dict with an "error" key.
-    """
-    # Step 1: find file via code search (always on default branch)
-    try:
-        results = search_code(github_repo, function_name)
-    except httpx.HTTPStatusError as exc:
-        return {"error": f"GitHub API error during search: {exc}"}
-
-    if not results:
-        return {"error": f"No files found containing '{function_name}' in {github_repo}."}
-
-    # Step 2: resolve version to a tag ref
-    ref = "HEAD"
-    resolved_tag = None
-    if version:
-        try:
-            resolved_tag = resolve_version_to_tag(github_repo, version)
-        except httpx.HTTPStatusError as exc:
-            return {"error": f"GitHub API error fetching tags: {exc}"}
-        if resolved_tag is None:
-            try:
-                available = list_tags(github_repo)[:20]
-            except Exception:  # noqa: BLE001
-                available = []
-            return {
-                "error": (
-                    f"Version '{version}' not found as a GitHub tag in {github_repo}. "
-                    f"Available tags (up to 20): {available}"
-                )
-            }
-        ref = resolved_tag
-
-    # Step 3 & 4: fetch file at ref and extract function
-    for item in results:
-        file_path = item["path"]
-        if not file_path.endswith(".py"):
-            continue
-        try:
-            source = get_file_source(package, github_repo, file_path, ref)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                # File may not have existed at this version — try next candidate
-                continue
-            return {"error": f"GitHub API error fetching '{file_path}' at '{ref}': {exc}"}
-        except Exception:  # noqa: BLE001
-            continue
-
-        fn_source = extract_function(source, function_name)
-        if fn_source:
-            return {
-                "function": function_name,
-                "file": file_path,
-                "version": resolved_tag or "latest",
-                "html_url": item["html_url"],
-                "source": fn_source,
-            }
-
-    # Function not found in any candidate file at the requested ref
-    searched = [r["path"] for r in results if r["path"].endswith(".py")][:5]
-    if version and resolved_tag:
-        return {
-            "error": (
-                f"Function '{function_name}' was not found at version '{resolved_tag}'. "
-                f"It may not have existed yet or may have had a different name. "
-                f"Files checked: {searched}"
-            )
-        }
-    return {
-        "error": (
-            f"Found files mentioning '{function_name}' but could not extract "
-            f"the function definition. It may be defined dynamically or in a "
-            f"non-standard way. Files searched: {searched}"
-        )
-    }
+    with httpx.Client(follow_redirects=True, timeout=30.0) as client:
+        with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
+            downloads = [
+                pool.submit(_download_file, client, github_repo, ref, path, root)
+                for path in missing
+            ]
+            for download in downloads:
+                download.result()
+    _synced_refs.add((github_repo, ref))
+    if is_tag:
+        index_path = _tag_index_path(package, version)
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index = {"ref": ref, "paths": paths, "truncated": truncated}
+        index_path.write_text(json.dumps(index), encoding="utf-8")
+    return RefFiles(ref, root, [root / path for path in paths], truncated)

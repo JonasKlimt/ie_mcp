@@ -1,22 +1,39 @@
 """
-Local cache and live-fetch helpers for package documentation.
+Fetches documentation pages, converts them to Markdown and caches them on disk.
 
-The cache keeps the repo small while making repeated questions fast.
-Docs are fetched from the package's official documentation when needed and
-stored under .cache/docs/{package}/{section}.md.
+Pages come from the URLs in the package registry and are stored under
+{cache root}/docs/{package}/{version}/{section}.md; the cache root is also used for source files.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify as _to_md
 
-
 ROOT = Path(__file__).resolve().parent.parent
-CACHE_ROOT = ROOT / ".cache" / "docs"
+CACHE_DIR_VARIABLE = "IE_MCP_CACHE_DIR"
+
+
+def cache_root() -> Path:
+    """Return the folder that holds all cached docs and source files.
+
+    Uses IE_MCP_CACHE_DIR if set, the repository's .cache folder when the server
+    runs from a git clone, and ~/.cache/ie_mcp for installed copies (uvx, pip).
+
+    Returns:
+        Path of the cache root folder (it may not exist yet).
+    """
+    override = os.environ.get(CACHE_DIR_VARIABLE)
+    if override:
+        return Path(override).expanduser()
+    if (ROOT / ".git").exists():
+        return ROOT / ".cache"
+    return Path.home() / ".cache" / "ie_mcp"
+
 
 _NOISE_SELECTORS = (
     "nav",
@@ -42,6 +59,14 @@ _MAIN_SELECTORS = (
 
 
 def html_to_markdown(html: str) -> str:
+    """Convert a documentation HTML page to Markdown, without navigation and scripts.
+
+    Args:
+        html: Full HTML of the page.
+
+    Returns:
+        Markdown of the main content, with links and images stripped.
+    """
     soup = BeautifulSoup(html, "html.parser")
 
     for selector in _NOISE_SELECTORS:
@@ -59,22 +84,46 @@ def html_to_markdown(html: str) -> str:
 
 
 def cache_path(package: str, section: str, version: str = "latest") -> Path:
-    return CACHE_ROOT / package / version / f"{section}.md"
+    """Return the cache file of one documentation page.
+
+    Args:
+        package: Package name.
+        section: Section id of the page.
+        version: Docs version slug.
+
+    Returns:
+        Path of {cache root}/docs/{package}/{version}/{section}.md.
+    """
+    return cache_root() / "docs" / package / version / f"{section}.md"
 
 
 def read_cached_page(package: str, section: str, version: str = "latest") -> str | None:
+    """Read a documentation page from the cache.
+
+    Args:
+        package: Package name.
+        section: Section id of the page.
+        version: Docs version slug.
+
+    Returns:
+        The cached Markdown, or None if the page is not cached.
+    """
     path = cache_path(package, section, version)
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    # Backward-compat: old cache had no version subdirectory for 'latest'
-    if version == "latest":
-        old_path = CACHE_ROOT / package / f"{section}.md"
-        if old_path.exists():
-            return old_path.read_text(encoding="utf-8")
-    return None
+    return path.read_text(encoding="utf-8") if path.exists() else None
 
 
 def write_cached_page(package: str, section: str, content: str, version: str = "latest") -> Path:
+    """Write a documentation page to the cache.
+
+    Args:
+        package: Package name.
+        section: Section id of the page.
+        content: Markdown text of the page.
+        version: Docs version slug.
+
+    Returns:
+        Path of the written cache file.
+    """
     path = cache_path(package, section, version)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -82,12 +131,40 @@ def write_cached_page(package: str, section: str, content: str, version: str = "
 
 
 def fetch_live_markdown(url: str, timeout: float = 30.0) -> str:
+    """Download a documentation page and convert it to Markdown.
+
+    Args:
+        url: URL of the page.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Markdown of the page's main content.
+
+    Raises:
+        httpx.HTTPError: If the download fails.
+    """
     response = httpx.get(url, follow_redirects=True, timeout=timeout)
     response.raise_for_status()
     return html_to_markdown(response.text)
 
 
-def get_or_fetch_page(package: str, section: str, url: str, version: str = "latest") -> tuple[str, bool]:
+def get_or_fetch_page(
+    package: str, section: str, url: str, version: str = "latest"
+) -> tuple[str, bool]:
+    """Return a documentation page from the cache, downloading it on first use.
+
+    Args:
+        package: Package name.
+        section: Section id of the page.
+        url: URL of the page.
+        version: Docs version slug.
+
+    Returns:
+        The Markdown text and whether it came from the cache.
+
+    Raises:
+        httpx.HTTPError: If the page is not cached and the download fails.
+    """
     cached = read_cached_page(package, section, version)
     if cached is not None:
         return cached, True
@@ -98,6 +175,20 @@ def get_or_fetch_page(package: str, section: str, url: str, version: str = "late
 
 
 def refresh_page(package: str, section: str, url: str, version: str = "latest") -> str:
+    """Download a documentation page again and replace its cache entry.
+
+    Args:
+        package: Package name.
+        section: Section id of the page.
+        url: URL of the page.
+        version: Docs version slug.
+
+    Returns:
+        The fresh Markdown text.
+
+    Raises:
+        httpx.HTTPError: If the download fails.
+    """
     content = fetch_live_markdown(url)
     write_cached_page(package, section, content, version)
     return content

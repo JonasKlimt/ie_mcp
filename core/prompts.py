@@ -34,7 +34,9 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
                 f"Please retry with a valid package name."
             )
         sections = registry.get_sections(package)
-        intro_section = "introduction" if "introduction" in sections else (sections[0] if sections else None)
+        intro_section = (
+            "introduction" if "introduction" in sections else (sections[0] if sections else None)
+        )
         steps = [
             f"1. Call get_package_info('{package}') to get metadata and installation instructions.",
         ]
@@ -43,20 +45,23 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
                 f"2. Call get_doc_section('{package}', '{intro_section}') to read the introduction."
             )
         steps.append(
+            f"{len(steps) + 1}. Call get_installed_package_version('{package}') and tell me "
+            f"which version is installed in my environment, or that it is not installed."
+        )
+        steps.append(
             f"{len(steps) + 1}. Summarise: what the package does, how to install it, "
-            f"and provide a minimal first working example."
+            f"and provide a minimal first working example. Mention it if the docs "
+            f"version differs from the installed version."
         )
-        return (
-            f"Help me get started with the '{package}' Python package.\n\n"
-            + "\n".join(steps)
-        )
+        return f"Help me get started with the '{package}' Python package.\n\n" + "\n".join(steps)
 
     @mcp.prompt()
     def explain_function(package: str, function_name: str) -> str:
         """Explain what a specific function does, including its source and documentation.
 
-        Fetches the function source from GitHub and searches the docs for
-        relevant context, then explains parameters, return value, and usage.
+        Reads the function from the installed package (or asks first if it is
+        not installed) and searches the docs for context, then explains
+        parameters, return value, and usage.
 
         Args:
             package: Package name (call list_packages() to see available options).
@@ -72,10 +77,15 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
         return (
             f"Explain the '{function_name}' function from the '{package}' package.\n\n"
             f"Please:\n"
-            f"1. Call get_function_source('{package}', '{function_name}') to read the source code.\n"
-            f"2. Call search_docs('{package}', '{function_name}') to find relevant documentation.\n"
+            f"1. Call get_function_source('{package}', '{function_name}') without a version. "
+            f"It reads the version installed in my environment. If the result has status "
+            f"'not_installed', tell me, show the python_executable, and ask before using "
+            f"the latest version.\n"
+            f"2. Call search_docs('{package}', '{function_name}') to find relevant documentation. "
+            f"If it reports a docs/installed version mismatch, trust the source code.\n"
             f"3. Provide a clear explanation covering: what the function does, its parameters, "
-            f"return value, any exceptions it raises, and a short usage example."
+            f"return value, any exceptions it raises, and a short usage example.\n"
+            f"4. State which version and source (local, pypi or github) the answer is based on."
         )
 
     @mcp.prompt()
@@ -100,9 +110,13 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
             f"How do I {task} using the '{package}' package?\n\n"
             f"Please:\n"
             f"1. Call search_docs('{package}', '{task}') to find relevant documentation snippets.\n"
-            f"2. For any key functions mentioned, call get_function_source('{package}', <function_name>) "
-            f"to confirm the exact API.\n"
-            f"3. Provide a clear, step-by-step guide with runnable code examples."
+            f"2. For any key functions mentioned, call get_function_source('{package}', "
+            f"<function_name>, detail='signature') without a version, to confirm the exact API "
+            f"of the version installed in my environment. If the package is not installed, "
+            f"tell me and ask before using the latest version.\n"
+            f"3. Provide a clear, step-by-step guide with runnable code examples.\n"
+            f"4. State which package version and which docs version the answer is based on, "
+            f"and mention it if they differ."
         )
 
     @mcp.prompt()
@@ -114,7 +128,8 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
     ) -> str:
         """Compare how a function changed between two versions of a package.
 
-        Fetches the function source at both version tags and produces a
+        Fetches the function source at both versions (from the installed files,
+        PyPI or GitHub, whichever holds that version) and produces a
         side-by-side diff with a plain-language explanation of what changed
         (signature, parameters, logic, docstring, removal).
 
@@ -135,8 +150,8 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
             f"Compare the '{function_name}' function between version {version_a} "
             f"and version {version_b} of the '{package}' package.\n\n"
             f"Please:\n"
-            f"1. Call list_source_versions('{package}') to confirm both tags exist "
-            f"and find the exact tag spelling if needed.\n"
+            f"1. Call list_source_versions('{package}') to confirm both versions exist "
+            f"(on PyPI or as GitHub tags).\n"
             f"2. Call get_function_source('{package}', '{function_name}', '{version_a}') "
             f"to fetch the function at version {version_a}.\n"
             f"3. Call get_function_source('{package}', '{function_name}', '{version_b}') "
@@ -148,7 +163,8 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
             f"   - Behavioural / logic changes\n"
             f"   - Docstring changes\n"
             f"   - Any deprecation or breaking-change notes\n"
-            f"   - A plain-language summary of what the change means for users."
+            f"   - A plain-language summary of what the change means for users.\n"
+            f"6. State the source (local, pypi or github) of each of the two versions."
         )
 
     @mcp.prompt()

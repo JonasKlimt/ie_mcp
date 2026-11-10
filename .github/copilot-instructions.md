@@ -80,53 +80,70 @@ Routing rules:
 
 ---
 
-## Environment check before version-sensitive lookups
+## Version and source rules
 
-When a user asks about a **function, method, or API** of a package that is registered
-in the ie-mcp server, and they have **not specified a version**:
+The version that matters is the one installed in the user's environment, unless
+the user names another one. Follow these rules in order.
 
-1. Call `get_installed_package_version(package)` **first**.
-2. Use the returned `installed_version` for all subsequent `get_function_source` and
-   `get_doc_section` calls.
-3. Always tell the user which version you are looking up and which Python environment
-   was checked (the `python_executable` field in the response).
+0. **Choose the user's environment first (once per task or project).**
+   - Find the Python interpreter of the file, notebook or project the user works
+     on: the selected interpreter or kernel, or run
+     `python -c "import sys; print(sys.executable)"` in the project's environment.
+     Call `set_python_environment(path)`.
+   - If you cannot find it, or the question is not about a specific file or
+     project, call `get_server_environment()`. If it has a `hint`, or the
+     interpreter is clearly not the user's, ask the user which environment to use.
 
-If the tool returns `status: "not_installed"`:
-- Tell the user the package was not found in the active MCP environment.
-- Show them the `python_executable` path so they can verify whether it is the right
-  interpreter.
-- Ask whether they want to fall back to the **latest** version, or whether they want
-  to update `.vscode/mcp.json` first.
+1. **No version mentioned (default).**
+   - Call `get_installed_package_version(package)`.
+   - Function, method, class or signature questions: call
+     `get_function_source(package, name)` **without** a version. It reads the
+     installed files (`source: "local"`). Use `Class.method` for methods and
+     `detail="signature"` when signature and docstring are enough.
+   - Workflow, how-to and concept questions: use `get_package_info` to pick a
+     section, then `get_doc_section`; use `search_docs` only if no section fits.
+     Confirm key functions with `get_function_source`.
+   - Docs results state `docs_version` and `installed_version`. If they differ,
+     tell the user and trust the installed source code for signatures.
+
+2. **The user names a specific other version.**
+   - Call `get_function_source(package, name, version=...)` or
+     `search_source(package, query, version=...)`. The code comes from PyPI
+     (`source: "pypi"`), or from GitHub (`source: "github"`) if that version is
+     not on PyPI. Use `list_source_versions(package)` if the version is unclear.
+   - For docs of that version, call `list_doc_versions(package)`. If there are
+     no versioned docs, say that legacy documentation is not available and
+     answer from the versioned source code.
+
+3. **The package is not installed (`status: "not_installed"`).**
+   - First check that the inspected `python_executable` is the user's
+     environment (rule 0). If it is, tell the user, show the `python_executable`,
+     and ask before using the latest version. Do not fall back silently.
+
+4. **"Latest" only on request.** Use `version="latest"` or `fetch_latest_docs`
+   only when the user asks for the latest version or agreed to it under rule 3.
+
+5. **Always state the basis of the answer:** which version, and which source
+   (`local`, `pypi`, `github`, and the docs version).
 
 ---
 
 ## Environment audit
 
 When a user asks "what packages do I have installed?" or "is X available in my
-environment?", call `get_server_environment()`. This returns the Python executable,
-Python version, and the installed version of every ie-mcp-tracked package in one call.
+environment?", call `get_server_environment()`. It returns the inspected Python
+interpreter, where it came from (`python_executable_origin`), and the installed
+version of every ie-mcp-tracked package. Pass `refresh=True` after the user
+installed or upgraded a package.
 
 ---
 
-## Wrong environment warning
+## Wrong environment
 
-If `python_executable` in any tool response does **not** match the interpreter the
-user expects (e.g. a different conda env, a system Python, or a venv), surface a
-clear warning:
+If `python_executable` in a tool response is not the interpreter of the user's
+file or project (e.g. a different conda env, a system Python, or the server's
+own Python), call `set_python_environment` with the right one and repeat the
+call. If you do not know the right one, ask the user:
 
-> ⚠️ The ie-mcp server is running under `<python_executable>`. If this is not the
-> environment where you installed `<package>`, update the `"command"` field in
-> `.vscode/mcp.json` and restart the MCP server.
-
----
-
-## General ie-mcp routing policy
-
-- For **named function / method questions**: check installed version → fetch source
-  at that version via `get_function_source`.
-- For **conceptual / how-to questions**: check installed version → fetch the matching
-  doc section via `get_doc_section`.
-- For **version-explicit questions** (user states a version): skip the installed
-  version check and use the user-provided version directly.
-- Only fall back to `latest` when the package is confirmed not installed and the user
-  accepts the fallback.
+> ⚠️ ie-mcp inspected `<python_executable>`. Which Python environment do you
+> use for this project?

@@ -5,12 +5,12 @@
 ![MCP](https://img.shields.io/badge/MCP-server-blueviolet)
 ![Packages](https://img.shields.io/badge/packages-56-orange)
 
-Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology packages, especially Brightway, much easier. It guides GitHub Copilot to the right package documentation for your question, so you avoid mixed package versions, wrong references, and hallucinated answers. Ask it anything about a registered package (installation, usage, API, concepts) directly from VS Code Copilot.
+Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology packages, especially Brightway, much easier. It reads the source code of the package version **installed in your own environment** and the matching documentation, so you avoid mixed package versions, wrong references, and hallucinated answers. Ask it anything about a registered package (installation, usage, API, concepts) from GitHub Copilot in VS Code, Claude Code or Codex.
 
 > [!NOTE] 
 > **What is an MCP server?**
 >
-> An MCP (Model Context Protocol) server is a bridge between Copilot and trusted external information. Check this link to learn more about MCP servers: https://modelcontextprotocol.io/docs/getting-started/intro. In the case of the ie_mcp server Copilot can call this server to check package docs, source code, and versions before it answers.
+> An MCP (Model Context Protocol) server is a bridge between an AI assistant and trusted external information. Check this link to learn more about MCP servers: https://modelcontextprotocol.io/docs/getting-started/intro. In the case of the ie_mcp server the assistant can call this server to check package docs, source code, and versions before it answers.
 
 **Currently supported packages:** The full Brightway LCA ecosystem, and additional industrial ecology tools — 56 packages total (see [Brightway ecosystem](#brightway-ecosystem) and [Additional packages](#additional-packages) below)
 
@@ -19,8 +19,8 @@ Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology p
 
 - [Why?](#why)
 - [Example questions](#example-questions)
-- [Prerequisites](#prerequisites)
 - [Setup](#setup)
+- [Every answer shows its source](#every-answer-shows-its-source)
 - [GitHub token (optional)](#github-token-optional)
 - [How the server works](#how-the-server-works)
 - [Brightway ecosystem](#brightway-ecosystem)
@@ -42,103 +42,181 @@ For modelling work, you need reliable help that matches your real environment an
 
 ---
 
-## Prerequisites
-
-Run the following in your environment:
-
-```bash
-pip install "mcp[cli]>=1.0.0" "httpx>=0.27.0" "beautifulsoup4>=4.12.0" "markdownify>=0.13.0"
-```
----
-
 ## Setup
 
-### 1. Clone the repo
+Two steps: install `uv` once, then add the server to your AI app. You do not have to clone this repository, and nothing is installed into your research environment.
 
-```bash
-git clone https://github.com/JonasKlimt/ie_mcp.git
-cd ie-mcp
+### Step 1: Install uv
+
+[uv](https://docs.astral.sh/uv/) starts the server in its own small environment. Open a terminal and run the line for your system.
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### 2. Connect to your AI client
+macOS and Linux:
 
-#### 1st Option: Use the mcp server from within this clonded (which then becomes your local) repository
-The `.vscode/mcp.json` file is already configured. Open **this folder** as your workspace root in VS Code and Copilot agent mode picks up the server automatically — no manual startup needed. This is recommended if you just want to get answers for questions.
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-#### 2nd Option: Use the mcp server in your project
-If you want to use the server in your project to answer questions and help you code, you need to add the following to your project. The server will still run in the local cloned repository but you will have access to it within your project.
+Then **close and reopen your AI app** (and the terminal), so it can find the new `uvx` command. Check with `uvx --version`. You also need [Git](https://git-scm.com/downloads); check with `git --version`.
 
-> **Other workspaces / projects:** To use the server from a different project, add it to your VS Code user settings (`settings.json`) with an absolute path:
->
-> ```json
-> {
->   "mcp.servers": {
->     "ie-mcp": {
->       "type": "stdio",
->       "command": "/absolute/path/to/your/environment/python.exe",
->       "args": ["run", "/absolute/path/to/ie-mcp/server.py"],
->       "env": {
->          "GITHUB_TOKEN" : ""
->       }
->     }
->   }
-> }
-> ```
+### Step 2: Add the server to your AI app
 
-### 3. Point the server at the right Python environment
+In every app you register the same start command:
 
-The server checks your **installed package versions** to look up the correct documentation and source code. It can only see packages installed in the Python interpreter specified in `mcp.json` (or user `settings.json`).
+```bash
+uvx --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
+```
 
-> [!WARNING]
-> **Your working environment:** set `command` to the same Python executable you use for your work.
-> E.g.: conda (`C:\Users\you\miniconda3\envs\bw\python.exe`), venv in project folder (`./venv/Scripts/python.exe`)
+Do not run this line yourself. Your AI app runs it in the background. Below is where to put it.
+
+#### Claude Code (desktop app or terminal)
+
+Create a file called `.mcp.json` in the top folder of your project (the folder you open in Claude Code) with this content:
+
+```json
+{
+  "mcpServers": {
+    "ie-mcp": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"]
+    }
+  }
+}
+```
+
+Start a new session in that folder and approve the `ie-mcp` server when Claude asks.
+
+To have the server in **all** your projects instead, run this once in a terminal (PowerShell, Terminal). It needs the `claude` command of the Claude Code CLI:
+
+```bash
+claude mcp add --scope user --transport stdio ie-mcp -- uvx --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
+```
+
+#### Codex (desktop app, IDE extension or terminal)
+
+In the desktop app:
+
+1. Open **Settings** and select **MCP servers**.
+2. Select **Add server**.
+3. Name: `ie-mcp`. Type: **STDIO**. Command: `uvx`. Arguments: `--from`, `git+https://github.com/JonasKlimt/ie_mcp`, `ie-mcp`.
+4. Save, then select **Restart**.
+
+In the IDE extension the same form is under the gear menu → **MCP servers**. In a terminal, this command does the same:
+
+```bash
+codex mcp add ie-mcp -- uvx --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
+```
+
+The app, the IDE extension and the terminal share one configuration (`~/.codex/config.toml`), so you only do this once.
+
+#### VS Code (GitHub Copilot)
+
+Create a file called `mcp.json` inside a `.vscode` folder in your project (`your-project/.vscode/mcp.json`) with this content:
+
+```json
+{
+  "servers": {
+    "ie-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"]
+    }
+  }
+}
+```
+
+Click **Start** above the server name in that file. To have the server in all your projects, open the Command Palette (`Ctrl+Shift+P`), run **MCP: Open User Configuration**, and paste the same content there.
 
 > [!NOTE]
-> For best results, also add the instruction file (`.github/copilot-instructions.md`) in the .github folder to you repository. An instruction file is a short set of project-specific rules for Copilot (what tools to prefer, how to answer, what context matters most). This makes ie_mcp more efficient because Copilot is guided to use the server consistently and query package docs/versions in the way you want.
+> For best results with Copilot, also copy the instruction file (`.github/copilot-instructions.md`) into the `.github` folder of your project. It tells Copilot when to use ie_mcp and how to handle versions.
+
+### Step 3: Check that it works
+
+Ask your assistant: *"Use ie-mcp to show which Python environment it inspects."* The answer names the Python interpreter and the installed version of every registered package.
+
+### How the server finds your environment
+
+You do not have to configure your Python environment. The assistant looks up the interpreter of the file, notebook or project you are working on and passes it to the server. If it cannot tell which environment you use, it asks you. You can also just say it: *"Use my conda environment `bw` for ie-mcp."*
+
+Without that, the server uses an environment that was active when your AI app started, or a `.venv` folder in your project. Every answer shows the interpreter that was inspected, so you can always check. The server only reads the environment; it never imports your packages and never installs anything.
+
+### Optional settings
+
+These are environment variables for the server. Most users need none of them. They go in the `env` block of the server entry (`"env": {"NAME": "value"}`), or in Codex in the environment variables of the server form.
+
+| Variable | Meaning |
+|---|---|
+| `IE_MCP_TARGET_PYTHON` | Always start with this Python executable as the environment to inspect, for example `C:/Users/you/miniconda3/envs/bw/python.exe`. The assistant can still switch to another one. |
+| `IE_MCP_CACHE_DIR` | Folder for downloaded docs and source files. Default: `~/.cache/ie_mcp`. |
+| `GITHUB_TOKEN` | Optional, see below. |
+
+> [!NOTE]
+> The server finds packages installed in the environment itself (conda, venv, `pip install`, `pip install -e`). Packages that are only reachable through `PYTHONPATH` or a `pip install --user` folder are not seen.
+
+---
+
+## Every answer shows its source
+
+Results of the source tools state where the information comes from:
+
+| Field | Meaning |
+|---|---|
+| `source` | `local` (your installed files), `pypi` (a release downloaded from PyPI) or `github` |
+| `version` | the exact version the code comes from |
+| `installed_version` | what is installed in your environment (or `null`) |
+| `file` | the file the code was read from |
+| `python_executable` | the interpreter that was inspected |
+
+Documentation results state the `docs_version` that was read and your `installed_version`, with a warning if they differ. Many packages only publish docs for their latest version, so this is a common cause of wrong answers (for example mixed Brightway 2 and 2.5 syntax).
 
 ---
 
 ## GitHub token (optional)
 
 > [!TIP]
-> The `search_source` and `get_function_source` tools use the GitHub REST API. Without a token, GitHub allows **60 requests/hour** — enough for light use. Add a free personal access token to raise the limit to **5 000 requests/hour**.
+> You usually do not need a token. Your installed version is read from disk, and other released versions are downloaded from PyPI. GitHub is only used for versions that are **not on PyPI** (for example `HEAD` or an unreleased branch) and for listing tags. Without a token GitHub allows **60 requests/hour**, enough for light use. A free personal access token raises the limit to **5 000 requests/hour**.
 
 1. Go to [github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
-2. Click **Generate new token (classic)**, give it a name, set an expiry — **no scopes needed** for public repos.
-3. Add the token to your client config:
-
-**VS Code** — paste into `.vscode/mcp.json`:
+2. Click **Generate new token (classic)**, give it a name, set an expiry. **No scopes are needed** for public repos.
+3. Add it to the server entry of your configuration:
 
 ```json
-{
-  "mcp.servers": {
-    "ie-mcp": {
-      "type": "stdio",
-      "command": "/absolute/path/to/your/environment/python.exe",
-      "args": ["run", "/absolute/path/to/ie-mcp/server.py"],
-      "env": {
-        "GITHUB_TOKEN" : "ghp_your_token"
-      }
-    }
+"ie-mcp": {
+  "command": "uvx",
+  "args": ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"],
+  "env": {
+    "GITHUB_TOKEN": "ghp_your_token"
   }
 }
-
 ```
 
-
 > [!IMPORTANT]
-> Do not commit `.vscode/mcp.json` after adding your token. The empty-token version is checked in so other users get a working starting point; your filled-in version is for local use only.
+> Do not commit a configuration file that contains your token.
 
 
 ## How the server works
 
-1. It checks your active Python environment and installed package versions.
-2. It fetches official documentation pages when needed and keeps a local cache for faster repeated use.
-3. For version-specific questions, it checks GitHub tags first and then fetches matching source code.
-4. When versioned docs are available (for example on ReadTheDocs), it can fetch those too.
-5. If versioned docs are not available, it still answers from the matching versioned source code.
+1. **Your environment first.** The assistant tells the server which Python environment your project uses, and the server asks that Python which package versions are installed. If you do not mention a version, this is the version it answers for.
+2. **Local source code.** Functions, methods and classes are read directly from the installed files on your disk. This is fast, needs no internet, and always matches your version.
+3. **Other versions from PyPI.** If you ask about another version, that exact release is downloaded from PyPI once and cached.
+4. **GitHub as the last resort.** Only versions that are not on PyPI (for example `HEAD`) are read from GitHub, at that exact tag or branch.
+5. **Docs for context.** Official documentation pages are fetched when needed and cached. They provide workflows and examples; signatures come from the source code. A version mismatch between docs and installed code is reported.
+6. **Not installed?** The server says so and shows which interpreter it inspected. The assistant checks that this is the right environment and asks you before it falls back to the latest version.
 
 This keeps answers reliable, version-correct, and grounded in official docs or source.
+
+### Development
+
+```bash
+pip install -e ".[dev]"
+pytest              # offline tests
+pytest -m network   # tests that need PyPI and GitHub
+```
 
 ---
 

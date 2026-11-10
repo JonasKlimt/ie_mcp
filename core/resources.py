@@ -32,7 +32,9 @@ def register_resources(mcp: FastMCP, registry: PackageRegistry) -> None:
         if section_info is None:
             sections = registry.get_sections(package)
             if not sections:
-                return f"Unknown package '{package}'. Available packages: {registry.list_packages()}"
+                return (
+                    f"Unknown package '{package}'. Available packages: {registry.list_packages()}"
+                )
             return (
                 f"Section '{section}' not found for '{package}'. "
                 f"Available: {', '.join(sections)}"
