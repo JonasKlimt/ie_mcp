@@ -7,7 +7,10 @@
 
 Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology packages, especially Brightway, much easier. It reads the source code of the package version **installed in your own environment** and the matching documentation, so you avoid mixed package versions, wrong references, and hallucinated answers. Ask it anything about a registered package (installation, usage, API, concepts) from GitHub Copilot in VS Code, Claude Code or Codex.
 
-> [!NOTE] 
+> [!TIP]
+> **Quick start: let your AI agent install it.** Paste the link to this repository (`https://github.com/JonasKlimt/ie_mcp`) into a chat with Claude Code, Codex or GitHub Copilot (Agent mode in VS Code) and write: *"Install this MCP server for me, for all my projects."* The agent reads the section [Install (instructions for AI agents)](#install-instructions-for-ai-agents) below and does the rest. Afterwards you restart the app once.
+
+> [!NOTE]
 > **What is an MCP server?**
 >
 > An MCP (Model Context Protocol) server is a bridge between an AI assistant and trusted external information. Check this link to learn more about MCP servers: https://modelcontextprotocol.io/docs/getting-started/intro. In the case of the ie_mcp server the assistant can call this server to check package docs, source code, and versions before it answers.
@@ -17,9 +20,11 @@ Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology p
 <details>
 <summary>📋 Table of contents</summary>
 
+- [Install (instructions for AI agents)](#install-instructions-for-ai-agents)
+- [Manual setup](#manual-setup)
 - [Why?](#why)
 - [Example questions](#example-questions)
-- [Setup](#setup)
+- [Configuration](#configuration)
 - [Every answer shows its source](#every-answer-shows-its-source)
 - [GitHub token (optional)](#github-token-optional)
 - [How the server works](#how-the-server-works)
@@ -28,23 +33,164 @@ Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology p
 
 </details>
 
-## Why?
+---
 
-For modelling work, you need reliable help that matches your real environment and package versions. This server gives environment- and version-relevant explanations for both single functions and complete IE package workflows. This makes going through pages of package documentation and checking its GitHub pages redundant. Copilot can access information about the package and get relevant explantion/coding help for the exact package version you are using.
+## Install (instructions for AI agents)
 
-## Example questions
+**Audience: an AI coding agent (Claude Code, Codex, GitHub Copilot) that was given the link to this repository by a user.** Humans can skip to [Manual setup](#manual-setup).
 
-- "How do I do a basic LCA in Brightway from setup to first result?"
-- "How do I use premise for prospective LCA scenarios?"
-- "How do I use the function [...]?
-- "Explain what arguments the function takes in the package version that is currently installed in my environment."
-- ...
+**Goal:** register the MCP server `ie-mcp` once, at **user level**, so it is available in **all** of the user's projects. Install it for the client you are running in. Install it for other clients only if the user asks.
+
+**Rules:**
+
+- Do **not** clone this repository, do **not** `pip install` anything into the user's Python environments, and do **not** create project-level config files (`.mcp.json`, `.vscode/mcp.json`, `.codex/`). The server is started on demand by `uvx` in its own isolated environment.
+- Do **not** commit, push or change files in the user's current project.
+- Back up a config file before editing it, keep all existing content, and write valid JSON or TOML.
+- Never claim that the server works until step 6 succeeded. Say what you could not verify.
+
+### The server definition
+
+Every client registers the same thing:
+
+| Field | Value |
+|---|---|
+| name | `ie-mcp` |
+| transport | `stdio` |
+| command | `uvx` |
+| args | `--from`, `git+https://github.com/JonasKlimt/ie_mcp`, `ie-mcp` |
+| env | none needed |
+
+### Step 1: Check the prerequisites
+
+Run `uvx --version` and `git --version`. Both must work. (`uv` provides `uvx`; Git is needed because the server is fetched from GitHub.)
+
+If `uv` is missing, tell the user and ask for permission before you install it, because the installer is a script downloaded from the internet. Then run:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+(first line for Windows, second for macOS and Linux). If `git` is missing, ask the user to install it from https://git-scm.com/downloads. A freshly installed `uvx` is often not on the `PATH` of the running session yet. Use its absolute path in the next steps (Windows: `%USERPROFILE%\.local\bin\uvx.exe`; macOS and Linux: `~/.local/bin/uvx`).
+
+### Step 2: Choose the `command` value
+
+- Desktop apps (Claude Code desktop app, Codex app, VS Code) often do **not** inherit the shell `PATH`, especially on Windows. Use the **absolute path** of `uvx` as `command` (find it with `where uvx` on Windows or `which uvx` elsewhere).
+- If you are certain the client starts servers from a shell that has `uvx` on its `PATH`, plain `uvx` is fine.
+
+Below, `<UVX>` means the value you chose.
+
+### Step 3: Check whether it is already installed
+
+Look for an existing `ie-mcp` entry (`claude mcp list`, `codex mcp list`, or open the config file from step 4). If it exists and points to this repository, do not add a duplicate; tell the user it is already installed and go to step 6. If it exists with different arguments, update that entry.
+
+### Step 4: Register the server at user level
+
+Use the part for the client you are running in.
+
+#### Claude Code
+
+Preferred, if the `claude` command exists:
+
+```bash
+claude mcp add --scope user --transport stdio ie-mcp -- <UVX> --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
+```
+
+If there is no `claude` command (for example in the desktop app), edit `~/.claude.json` (Windows: `%USERPROFILE%\.claude.json`). Back it up first. Keep every existing key. Add `ie-mcp` to the **top-level** `mcpServers` object (create it if missing; do not put it inside `projects`):
+
+```json
+"mcpServers": {
+  "ie-mcp": {
+    "type": "stdio",
+    "command": "<UVX>",
+    "args": ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"],
+    "env": {}
+  }
+}
+```
+
+In JSON, write backslashes in Windows paths twice (`C:\\Users\\you\\.local\\bin\\uvx.exe`).
+
+#### Codex (app, IDE extension or terminal)
+
+Preferred, if the `codex` command exists:
+
+```bash
+codex mcp add ie-mcp -- <UVX> --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
+```
+
+Otherwise add this block to `~/.codex/config.toml` (Windows: `%USERPROFILE%\.codex\config.toml`; or `$CODEX_HOME/config.toml` if that variable is set). The app, the IDE extension and the terminal share this file. `startup_timeout_sec` is raised because the very first start downloads the server:
+
+```toml
+[mcp_servers.ie-mcp]
+command = "<UVX>"
+args = ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"]
+startup_timeout_sec = 120
+```
+
+In TOML, write a Windows path as a literal string in single quotes: `command = 'C:\Users\you\.local\bin\uvx.exe'`. If `codex mcp add` was used, add the `startup_timeout_sec = 120` line to the new block afterwards.
+
+#### GitHub Copilot (VS Code)
+
+Edit the **user-level** MCP file `mcp.json` (create it if missing). Do not use `.vscode/mcp.json` in the project.
+
+| System | Path |
+|---|---|
+| Windows | `%APPDATA%\Code\User\mcp.json` |
+| macOS | `~/Library/Application Support/Code/User/mcp.json` |
+| Linux | `~/.config/Code/User/mcp.json` |
+
+For VS Code Insiders, replace `Code` with `Code - Insiders`; for a non-default VS Code profile, the user can open the right file with the Command Palette command **MCP: Open User Configuration**. Add the entry under the top-level `servers` object and keep other servers:
+
+```json
+{
+  "servers": {
+    "ie-mcp": {
+      "type": "stdio",
+      "command": "<UVX>",
+      "args": ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"]
+    }
+  }
+}
+```
+
+If you cannot write the file, tell the user to run **MCP: Open User Configuration** in the Command Palette and paste this content.
+
+### Step 5: Download the server once (warm-up and test)
+
+The first start downloads the server from GitHub and can take up to a minute, which may exceed a client's start-up time-out. Run the server once by hand so it is cached. It reads one JSON line on stdin, so this command ends by itself.
+
+Bash (macOS, Linux, Git Bash):
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}' | <UVX> --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
+```
+
+PowerShell:
+
+```powershell
+'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}' | & <UVX> --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
+```
+
+Success: the output is one JSON line that contains `"serverInfo":{"name":"ie-mcp"`. If it fails: `git` missing from `PATH`, no internet or a proxy blocks `github.com` and `pypi.org`, or `uvx` is not found (then fix the path from step 2).
+
+### Step 6: Verify and report to the user
+
+- Where the client offers a check, run it: `claude mcp list` or `codex mcp list`. In VS Code the user can see the server state in the Command Palette under **MCP: List Servers**.
+- A running session usually does not see a newly added server. **Tell the user to restart the app (Claude Code, Codex) or run MCP: List Servers → ie-mcp → Start (VS Code), and to open a new chat/session.**
+- Report: which client you configured, which file you changed (and where the backup is), the `command` you used, and the result of step 5.
+- Give the user this test question for the new session: *"Use ie-mcp to show which Python environment it inspects."* The answer must name a Python interpreter and list installed package versions.
+
+You do not need to ask the user for a Python environment. Once the server runs, its own instructions tell the assistant how to find the right environment for each project.
 
 ---
 
-## Setup
+## Manual setup
 
-Two steps: install `uv` once, then add the server to your AI app. You do not have to clone this repository, and nothing is installed into your research environment.
+Prefer to do it yourself? Two steps: install `uv` once, then add the server to your AI app. You do not have to clone this repository, and nothing is installed into your research environment. Each way below registers the server once for **all** your projects.
 
 ### Step 1: Install uv
 
@@ -74,28 +220,15 @@ uvx --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
 
 Do not run this line yourself. Your AI app runs it in the background. Below is where to put it.
 
-#### Claude Code (desktop app or terminal)
+#### Claude Code (Code tab of the desktop app, or terminal)
 
-Create a file called `.mcp.json` in the top folder of your project (the folder you open in Claude Code) with this content:
-
-```json
-{
-  "mcpServers": {
-    "ie-mcp": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"]
-    }
-  }
-}
-```
-
-Start a new session in that folder and approve the `ie-mcp` server when Claude asks.
-
-To have the server in **all** your projects instead, run this once in a terminal (PowerShell, Terminal). It needs the `claude` command of the Claude Code CLI:
+Run this once in a terminal (PowerShell, Terminal). It needs the `claude` command of the Claude Code CLI:
 
 ```bash
 claude mcp add --scope user --transport stdio ie-mcp -- uvx --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
 ```
+
+Then start a new session. Check with `claude mcp list`. Without the `claude` command, paste this repository's link into Claude Code and ask it to install the server (see the quick start at the top).
 
 #### Codex (desktop app, IDE extension or terminal)
 
@@ -112,11 +245,11 @@ In the IDE extension the same form is under the gear menu → **MCP servers**. I
 codex mcp add ie-mcp -- uvx --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
 ```
 
-The app, the IDE extension and the terminal share one configuration (`~/.codex/config.toml`), so you only do this once.
+The app, the IDE extension and the terminal share one configuration (`~/.codex/config.toml`), so you only do this once and it applies to all your projects.
 
 #### VS Code (GitHub Copilot)
 
-Create a file called `mcp.json` inside a `.vscode` folder in your project (`your-project/.vscode/mcp.json`) with this content:
+Open the Command Palette (`Ctrl+Shift+P`, on macOS `Cmd+Shift+P`), run **MCP: Open User Configuration**, and paste this content into the `mcp.json` file that opens. If the file already has servers, add only the `ie-mcp` entry inside `servers`:
 
 ```json
 {
@@ -130,14 +263,32 @@ Create a file called `mcp.json` inside a `.vscode` folder in your project (`your
 }
 ```
 
-Click **Start** above the server name in that file. To have the server in all your projects, open the Command Palette (`Ctrl+Shift+P`), run **MCP: Open User Configuration**, and paste the same content there.
+Save the file and click **Start** above the server name. The server is now available in Copilot Chat (Agent mode) in every folder you open.
 
 > [!NOTE]
-> For best results with Copilot, also copy the instruction file (`.github/copilot-instructions.md`) into the `.github` folder of your project. It tells Copilot when to use ie_mcp and how to handle versions.
+> For best results with Copilot, also copy the instruction file (`.github/copilot-instructions.md`) into the `.github` folder of a project. It tells Copilot when to use ie_mcp and how to handle versions. This file works per project.
 
 ### Step 3: Check that it works
 
 Ask your assistant: *"Use ie-mcp to show which Python environment it inspects."* The answer names the Python interpreter and the installed version of every registered package.
+
+---
+
+## Why?
+
+For modelling work, you need reliable help that matches your real environment and package versions. This server gives environment- and version-relevant explanations for both single functions and complete IE package workflows. This makes going through pages of package documentation and checking its GitHub pages redundant. Copilot can access information about the package and get relevant explantion/coding help for the exact package version you are using.
+
+## Example questions
+
+- "How do I do a basic LCA in Brightway from setup to first result?"
+- "How do I use premise for prospective LCA scenarios?"
+- "How do I use the function [...]?
+- "Explain what arguments the function takes in the package version that is currently installed in my environment."
+- ...
+
+---
+
+## Configuration
 
 ### How the server finds your environment
 
@@ -147,7 +298,7 @@ Without that, the server uses an environment that was active when your AI app st
 
 ### Optional settings
 
-These are environment variables for the server. Most users need none of them. They go in the `env` block of the server entry (`"env": {"NAME": "value"}`), or in Codex in the environment variables of the server form.
+These are environment variables for the server. Most users need none of them. They go in the `env` block of the server entry (`"env": {"NAME": "value"}`), in Codex in an `[mcp_servers.ie-mcp.env]` table of `config.toml` (or the environment variables of the server form), and in the `claude mcp add` command as `--env NAME=value` before the `--`.
 
 | Variable | Meaning |
 |---|---|
