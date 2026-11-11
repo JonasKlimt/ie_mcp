@@ -1,0 +1,58 @@
+# Limits, timeouts and cache settings of ie-mcp. Read once at server start.
+# Environment variables (see README) override a few of them.
+
+limits:
+  max_listed_versions: 100       # PyPI releases / GitHub tags shown by list_source_versions
+  max_source_matches: 20         # lines returned by search_source, definitions per lookup
+  max_line_length: 200           # characters of a matching source line
+  max_inheritance_steps: 10      # base classes followed to find an inherited method
+  max_repository_files: 500      # Python files read from one GitHub ref
+  max_doc_matches: 10            # snippets returned by search_docs
+  doc_snippet_chars: 500         # characters of one search_docs snippet
+  doc_page_chars: 20000          # characters of a doc page returned per call (use offset for more)
+  package_description_chars: 110 # description length in list_packages
+  changelog_releases: 15         # releases shown by get_changelog at most
+  changelog_default_releases: 5  # releases shown when no installed version is known
+  changelog_notes_chars: 1500    # characters of the notes of one release
+  changelog_file_chars: 8000     # characters returned from a plain changelog file
+
+timeouts:
+  target_python_seconds: 30      # reading the user's environment
+  http_seconds: 30               # downloading a docs page or a source file
+
+workers:
+  download: 8                    # parallel source file downloads from GitHub
+  docs: 8                        # parallel docs page downloads
+
+docs:
+  ttl_days: 7                    # how long moving docs ("latest", "stable") stay cached
+  moving_versions: [latest, stable]
+  max_discovered_pages: 40       # extra pages found per package, besides the curated sections
+  skipped_path_parts:            # pages that are never useful to search
+    - _modules
+    - _sources
+    - _static
+    - genindex
+    - py-modindex
+    - search.html
+    - changelog
+
+search:
+  bm25_k1: 1.5                   # term frequency saturation
+  bm25_b: 0.75                   # length normalisation
+  phrase_bonus: 3.0              # extra score when the whole query appears in a paragraph
+  heading_bonus: 1.0             # extra score per query word in the heading
+
+changelog:
+  file_names:                    # tried in this order when a repository has no GitHub releases
+    - CHANGELOG.md
+    - CHANGES.md
+    - HISTORY.md
+    - CHANGELOG.rst
+    - CHANGES.rst
+    - HISTORY.rst
+    - CHANGELOG.txt
+    - CHANGES.txt
+
+paths:
+  site_packages_folders: [site-packages, dist-packages]

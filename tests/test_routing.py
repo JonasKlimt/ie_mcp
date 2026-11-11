@@ -181,11 +181,12 @@ def test_search_follows_the_same_routing(sources: dict) -> None:
     remote = source_lookup.search_source("fakepkg", META, "return", "0.9.0")
     nothing = source_lookup.search_source("fakepkg", META, "no such text", None)
 
-    assert (local[0]["source"], local[0]["line"], local[0]["text"]) == (
+    assert (local["source"], local["matches"][0]["line"], local["matches"][0]["text"]) == (
         "local",
         2,
         "return 'local'",
     )
-    assert (remote[0]["source"], remote[0]["version"]) == ("pypi", "0.9.0")
-    assert remote[0]["file"] == "fakepkg/mod.py"
-    assert nothing[0]["message"] and nothing[0]["source"] == "local"
+    assert (remote["source"], remote["version"]) == ("pypi", "0.9.0")
+    assert remote["matches"][0]["file"] == "fakepkg/mod.py"
+    assert "root" not in remote  # downloaded files have no useful root to show
+    assert nothing["message"] and nothing["source"] == "local" and nothing["matches"] == []

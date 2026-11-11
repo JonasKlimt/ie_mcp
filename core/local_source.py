@@ -18,12 +18,13 @@ from typing import Any
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
+from .config import setting
 from .environment import get_distribution_info
 
 SKIPPED_DIRECTORIES = frozenset({"build", "dist", "node_modules", "__pycache__", "venv", "env"})
-MAX_SEARCH_RESULTS = 20
-MAX_LINE_LENGTH = 200
-MAX_INHERITANCE_STEPS = 10
+MAX_SEARCH_RESULTS = int(setting("limits", "max_source_matches"))
+MAX_LINE_LENGTH = int(setting("limits", "max_line_length"))
+MAX_INHERITANCE_STEPS = int(setting("limits", "max_inheritance_steps"))
 
 _DEFINITION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 DefinitionNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef

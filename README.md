@@ -8,7 +8,7 @@
 Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology packages, especially Brightway, much easier. It reads the source code of the package version **installed in your own environment** and the matching documentation, so you avoid mixed package versions, wrong references, and hallucinated answers. Ask it anything about a registered package (installation, usage, API, concepts) from GitHub Copilot in VS Code, Claude Code or Codex.
 
 > [!TIP]
-> **Quick start: let your AI agent install it.** Paste the link to this repository (`https://github.com/JonasKlimt/ie_mcp`) into a chat with Claude Code, Codex or GitHub Copilot (Agent mode in VS Code) and write: *"Install this MCP server for me, for all my projects."* The agent reads the section [Install (instructions for AI agents)](#install-instructions-for-ai-agents) below and does the rest. Afterwards you restart the app once.
+> **Quick start: let your AI agent install it.** Paste the link to this repository (`https://github.com/JonasKlimt/ie_mcp`) into a chat with Claude Code, Codex or GitHub Copilot (Agent mode in VS Code) and write: *"Install this MCP server for me, for all my projects."* The agent follows [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md) (linked in the section [Install (instructions for AI agents)](#install-instructions-for-ai-agents) below) and does the rest; it also asks whether you want to add a GitHub token (to raise GitHub's rate limit) and the optional always-on rule. Afterwards you restart the app once.
 
 > [!NOTE]
 > **What is an MCP server?**
@@ -37,154 +37,11 @@ Using the **ie_mcp** server makes coding with AI agents and Industrial Ecology p
 
 ## Install (instructions for AI agents)
 
-**Audience: an AI coding agent (Claude Code, Codex, GitHub Copilot) that was given the link to this repository by a user.** Humans can skip to [Manual setup](#manual-setup).
+**If you are an AI coding agent** (Claude Code, Codex, GitHub Copilot) and the user gave you the link to this repository: do not install from this page. Fetch the full instructions in **[INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md)** (raw text: https://raw.githubusercontent.com/JonasKlimt/ie_mcp/main/INSTALL_FOR_AGENTS.md) and follow them step by step, without summarising.
 
-**Goal:** register the MCP server `ie-mcp` once, at **user level**, so it is available in **all** of the user's projects. Install it for the client you are running in. Install it for other clients only if the user asks.
+The three rules in short: register the server once at **user level** (all projects) with `uvx`; do **not** clone this repository, `pip install` anything or create project files; and do not say that it works before the check in step 7 passed. The guide has two optional steps in which you ask the user: whether to give a GitHub token (step 3, to raise GitHub's rate limit) and whether to add a short always-on rule to their user-level instruction file (step 8).
 
-**Rules:**
-
-- Do **not** clone this repository, do **not** `pip install` anything into the user's Python environments, and do **not** create project-level config files (`.mcp.json`, `.vscode/mcp.json`, `.codex/`). The server is started on demand by `uvx` in its own isolated environment.
-- Do **not** commit, push or change files in the user's current project.
-- Back up a config file before editing it, keep all existing content, and write valid JSON or TOML.
-- Never claim that the server works until step 6 succeeded. Say what you could not verify.
-
-### The server definition
-
-Every client registers the same thing:
-
-| Field | Value |
-|---|---|
-| name | `ie-mcp` |
-| transport | `stdio` |
-| command | `uvx` |
-| args | `--from`, `git+https://github.com/JonasKlimt/ie_mcp`, `ie-mcp` |
-| env | none needed |
-
-### Step 1: Check the prerequisites
-
-Run `uvx --version` and `git --version`. Both must work. (`uv` provides `uvx`; Git is needed because the server is fetched from GitHub.)
-
-If `uv` is missing, tell the user and ask for permission before you install it, because the installer is a script downloaded from the internet. Then run:
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-(first line for Windows, second for macOS and Linux). If `git` is missing, ask the user to install it from https://git-scm.com/downloads. A freshly installed `uvx` is often not on the `PATH` of the running session yet. Use its absolute path in the next steps (Windows: `%USERPROFILE%\.local\bin\uvx.exe`; macOS and Linux: `~/.local/bin/uvx`).
-
-### Step 2: Choose the `command` value
-
-- Desktop apps (Claude Code desktop app, Codex app, VS Code) often do **not** inherit the shell `PATH`, especially on Windows. Use the **absolute path** of `uvx` as `command` (find it with `where uvx` on Windows or `which uvx` elsewhere).
-- If you are certain the client starts servers from a shell that has `uvx` on its `PATH`, plain `uvx` is fine.
-
-Below, `<UVX>` means the value you chose.
-
-### Step 3: Check whether it is already installed
-
-Look for an existing `ie-mcp` entry (`claude mcp list`, `codex mcp list`, or open the config file from step 4). If it exists and points to this repository, do not add a duplicate; tell the user it is already installed and go to step 6. If it exists with different arguments, update that entry.
-
-### Step 4: Register the server at user level
-
-Use the part for the client you are running in.
-
-#### Claude Code
-
-Preferred, if the `claude` command exists:
-
-```bash
-claude mcp add --scope user --transport stdio ie-mcp -- <UVX> --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
-```
-
-If there is no `claude` command (for example in the desktop app), edit `~/.claude.json` (Windows: `%USERPROFILE%\.claude.json`). Back it up first. Keep every existing key. Add `ie-mcp` to the **top-level** `mcpServers` object (create it if missing; do not put it inside `projects`):
-
-```json
-"mcpServers": {
-  "ie-mcp": {
-    "type": "stdio",
-    "command": "<UVX>",
-    "args": ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"],
-    "env": {}
-  }
-}
-```
-
-In JSON, write backslashes in Windows paths twice (`C:\\Users\\you\\.local\\bin\\uvx.exe`).
-
-#### Codex (app, IDE extension or terminal)
-
-Preferred, if the `codex` command exists:
-
-```bash
-codex mcp add ie-mcp -- <UVX> --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
-```
-
-Otherwise add this block to `~/.codex/config.toml` (Windows: `%USERPROFILE%\.codex\config.toml`; or `$CODEX_HOME/config.toml` if that variable is set). The app, the IDE extension and the terminal share this file. `startup_timeout_sec` is raised because the very first start downloads the server:
-
-```toml
-[mcp_servers.ie-mcp]
-command = "<UVX>"
-args = ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"]
-startup_timeout_sec = 120
-```
-
-In TOML, write a Windows path as a literal string in single quotes: `command = 'C:\Users\you\.local\bin\uvx.exe'`. If `codex mcp add` was used, add the `startup_timeout_sec = 120` line to the new block afterwards.
-
-#### GitHub Copilot (VS Code)
-
-Edit the **user-level** MCP file `mcp.json` (create it if missing). Do not use `.vscode/mcp.json` in the project.
-
-| System | Path |
-|---|---|
-| Windows | `%APPDATA%\Code\User\mcp.json` |
-| macOS | `~/Library/Application Support/Code/User/mcp.json` |
-| Linux | `~/.config/Code/User/mcp.json` |
-
-For VS Code Insiders, replace `Code` with `Code - Insiders`; for a non-default VS Code profile, the user can open the right file with the Command Palette command **MCP: Open User Configuration**. Add the entry under the top-level `servers` object and keep other servers:
-
-```json
-{
-  "servers": {
-    "ie-mcp": {
-      "type": "stdio",
-      "command": "<UVX>",
-      "args": ["--from", "git+https://github.com/JonasKlimt/ie_mcp", "ie-mcp"]
-    }
-  }
-}
-```
-
-If you cannot write the file, tell the user to run **MCP: Open User Configuration** in the Command Palette and paste this content.
-
-### Step 5: Download the server once (warm-up and test)
-
-The first start downloads the server from GitHub and can take up to a minute, which may exceed a client's start-up time-out. Run the server once by hand so it is cached. It reads one JSON line on stdin, so this command ends by itself.
-
-Bash (macOS, Linux, Git Bash):
-
-```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}' | <UVX> --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
-```
-
-PowerShell:
-
-```powershell
-'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}' | & <UVX> --from git+https://github.com/JonasKlimt/ie_mcp ie-mcp
-```
-
-Success: the output is one JSON line that contains `"serverInfo":{"name":"ie-mcp"`. If it fails: `git` missing from `PATH`, no internet or a proxy blocks `github.com` and `pypi.org`, or `uvx` is not found (then fix the path from step 2).
-
-### Step 6: Verify and report to the user
-
-- Where the client offers a check, run it: `claude mcp list` or `codex mcp list`. In VS Code the user can see the server state in the Command Palette under **MCP: List Servers**.
-- A running session usually does not see a newly added server. **Tell the user to restart the app (Claude Code, Codex) or run MCP: List Servers → ie-mcp → Start (VS Code), and to open a new chat/session.**
-- Report: which client you configured, which file you changed (and where the backup is), the `command` you used, and the result of step 5.
-- Give the user this test question for the new session: *"Use ie-mcp to show which Python environment it inspects."* The answer must name a Python interpreter and list installed package versions.
-
-You do not need to ask the user for a Python environment. Once the server runs, its own instructions tell the assistant how to find the right environment for each project.
+Humans can skip to [Manual setup](#manual-setup).
 
 ---
 
@@ -265,8 +122,8 @@ Open the Command Palette (`Ctrl+Shift+P`, on macOS `Cmd+Shift+P`), run **MCP: Op
 
 Save the file and click **Start** above the server name. The server is now available in Copilot Chat (Agent mode) in every folder you open.
 
-> [!NOTE]
-> For best results with Copilot, also copy the instruction file (`.github/copilot-instructions.md`) into the `.github` folder of a project. It tells Copilot when to use ie_mcp and how to handle versions. This file works per project.
+> [!TIP]
+> To make sure your assistant reaches for ie-mcp without being asked, add the short always-on rule from [Optional: always-on rule](#optional-always-on-rule). It works in every project, so you do not have to copy any file into your projects.
 
 ### Step 3: Check that it works
 
@@ -304,7 +161,42 @@ These are environment variables for the server. Most users need none of them. Th
 |---|---|
 | `IE_MCP_TARGET_PYTHON` | Always start with this Python executable as the environment to inspect, for example `C:/Users/you/miniconda3/envs/bw/python.exe`. The assistant can still switch to another one. |
 | `IE_MCP_CACHE_DIR` | Folder for downloaded docs and source files. Default: `~/.cache/ie_mcp`. |
+| `IE_MCP_DOCS_TTL_DAYS` | Days that the docs of `latest` and `stable` stay cached before they are downloaded again. Default: 7. Pinned versions such as `2.0.1` never expire. |
 | `GITHUB_TOKEN` | Optional, see below. |
+
+Limits such as the number of search results and the size of a docs page are in [`core/config.yaml`](core/config.yaml).
+
+### Optional: always-on rule
+
+The server sends its routing rules and a list of trigger terms (LCA, premise, ecoinvent, MFA, ...) to your AI app when it connects. If your assistant still does not use ie-mcp for a plain question, add this short rule to your **user-level** instruction file, which applies to every project:
+
+| App | File |
+|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` |
+| Codex | `~/.codex/AGENTS.md` |
+| GitHub Copilot (VS Code) | a new `ie-mcp.instructions.md` in the `prompts` folder of your VS Code user profile (Command Palette: **Chat: New Instructions File…**, choose the user profile), with `applyTo: "**"` in its header |
+
+```markdown
+## ie-mcp (Industrial Ecology packages)
+For questions about Brightway, premise, ecoinvent tools, LCA or material flow analysis, and for code that imports such packages, use the `ie-mcp` MCP tools first, even if I do not mention them. Start by calling `set_python_environment` with the Python of my project, then follow the server instructions. Always say which package version and source an answer is based on.
+```
+
+If an AI agent installs the server for you, it asks whether to add this rule ([INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md), step 8).
+
+### Tools
+
+| Tool | What it does |
+|---|---|
+| `list_packages` | All packages with a one-line description and the installed version |
+| `set_python_environment`, `get_server_environment` | Choose and inspect the Python environment (every other tool also accepts `python_executable` for a single call) |
+| `get_installed_package_version` | Installed version of one package |
+| `get_function_source`, `search_source` | Signature, docstring and code of a function, method or class, and a text search, for the installed version or any other version |
+| `list_source_versions`, `get_changelog` | Available versions, and what changed between them (GitHub releases or changelog file) |
+| `get_package_info`, `list_doc_sections`, `get_doc_section` | Package metadata and the pages of its documentation (long pages are read in parts) |
+| `search_docs` | Ranked search over all documentation pages of a package |
+| `list_doc_versions`, `fetch_latest_docs` | Documentation versions, and a forced fresh download |
+
+A failed call is reported as a tool error. Answers that are not failures, for example `not_installed` or `not_found`, are normal results.
 
 > [!NOTE]
 > The server finds packages installed in the environment itself (conda, venv, `pip install`, `pip install -e`). Packages that are only reachable through `PYTHONPATH` or a `pip install --user` folder are not seen.
@@ -321,7 +213,10 @@ Results of the source tools state where the information comes from:
 | `version` | the exact version the code comes from |
 | `installed_version` | what is installed in your environment (or `null`) |
 | `file` | the file the code was read from |
+| `root` | for search results from your installed files: the folder the `file` paths are relative to |
 | `python_executable` | the interpreter that was inspected |
+
+Search results state these fields once for the whole result, not for every match.
 
 Documentation results state the `docs_version` that was read and your `installed_version`, with a warning if they differ. Many packages only publish docs for their latest version, so this is a common cause of wrong answers (for example mixed Brightway 2 and 2.5 syntax).
 
@@ -347,7 +242,9 @@ Documentation results state the `docs_version` that was read and your `installed
 ```
 
 > [!IMPORTANT]
-> Do not commit a configuration file that contains your token.
+> Do not commit a configuration file that contains your token. The token is stored as plain text in the configuration file of your AI app; because it has no scopes it can only read public data, and you can revoke it at any time at the same page.
+
+**Let your AI agent add it.** If an agent installs the server for you, it asks whether you want a token, shows you these steps, and adds the token you paste in the chat to the server entry ([INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md), step 3). A token pasted in the chat is part of your conversation with your AI provider; if you prefer, add it yourself as shown above. In VS Code you can also let VS Code ask for it with an `inputs` entry of type `promptString`, so it never appears in a chat or file. If the token expires, calls that need GitHub report an authorisation error; create a new token the same way.
 
 
 ## How the server works
@@ -356,8 +253,9 @@ Documentation results state the `docs_version` that was read and your `installed
 2. **Local source code.** Functions, methods and classes are read directly from the installed files on your disk. This is fast, needs no internet, and always matches your version.
 3. **Other versions from PyPI.** If you ask about another version, that exact release is downloaded from PyPI once and cached.
 4. **GitHub as the last resort.** Only versions that are not on PyPI (for example `HEAD`) are read from GitHub, at that exact tag or branch.
-5. **Docs for context.** Official documentation pages are fetched when needed and cached. They provide workflows and examples; signatures come from the source code. A version mismatch between docs and installed code is reported.
-6. **Not installed?** The server says so and shows which interpreter it inspected. The assistant checks that this is the right environment and asks you before it falls back to the latest version.
+5. **Docs for context.** Official documentation pages are fetched when needed and cached for a week (`latest` and `stable`; pinned versions never expire). Besides the hand-written sections of each package, the server finds the other pages of the docs site (for example one page per module) and searches all of them with a ranked keyword search. They provide workflows and examples; signatures come from the source code. A version mismatch between docs and installed code is reported.
+6. **What changed?** `get_changelog` reads the release notes from GitHub, or the changelog file of the repository, for the versions after the one you have installed.
+7. **Not installed?** The server says so and shows which interpreter it inspected. The assistant checks that this is the right environment and asks you before it falls back to the latest version.
 
 This keeps answers reliable, version-correct, and grounded in official docs or source.
 
@@ -367,6 +265,7 @@ This keeps answers reliable, version-correct, and grounded in official docs or s
 pip install -e ".[dev]"
 pytest              # offline tests
 pytest -m network   # tests that need PyPI and GitHub
+black core tests server.py   # code style (line length 100)
 ```
 
 ---
@@ -487,8 +386,9 @@ You can also add an addtional package yourself:
    - Each section needs `id`, `title`, `url`, `description`.
 3. Run the fetch script: `python scripts/fetch_docs.py --package {name}`
 4. Restart the server — the new package is discovered automatically.
+5. Optional: add the package to a group under `check_first` in [`core/instructions.yaml`](core/instructions.yaml), so that the assistant knows when to reach for it (a test checks that every name there is a registered package).
 
-No changes to `server.py` or any core file are needed.
+No changes to `server.py` or any Python file are needed.
 
 Contibutions are welcome!
 

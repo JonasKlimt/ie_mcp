@@ -156,7 +156,7 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
             f"to fetch the function at version {version_a}.\n"
             f"3. Call get_function_source('{package}', '{function_name}', '{version_b}') "
             f"to fetch the function at version {version_b}.\n"
-            f"4. If either call returns an error saying the function was not found, "
+            f"4. If either call returns status 'not_found', "
             f"report that the function did not exist in that version.\n"
             f"5. Present a clear comparison covering:\n"
             f"   - Signature changes (parameters added, removed, renamed, or retyped)\n"
@@ -164,7 +164,9 @@ def register_prompts(mcp: FastMCP, registry: PackageRegistry) -> None:
             f"   - Docstring changes\n"
             f"   - Any deprecation or breaking-change notes\n"
             f"   - A plain-language summary of what the change means for users.\n"
-            f"6. State the source (local, pypi or github) of each of the two versions."
+            f"6. Call get_changelog('{package}', from_version='{version_a}', "
+            f"to_version='{version_b}') and use its release notes to explain why it changed.\n"
+            f"7. State the source (local, pypi or github) of each of the two versions."
         )
 
     @mcp.prompt()

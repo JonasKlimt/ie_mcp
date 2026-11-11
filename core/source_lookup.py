@@ -7,6 +7,7 @@ states its source, version, installed_version, file and python_executable.
 
 from __future__ import annotations
 
+import os
 import tarfile
 import zipfile
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from typing import Any
 import httpx
 
 from . import github, pypi
+from .config import setting
 from .environment import (
     SERVER_ORIGIN,
     environment_fields,
@@ -29,7 +31,7 @@ from .local_source import (
     search_files,
 )
 
-MAX_MATCHES = 20
+MAX_MATCHES = int(setting("limits", "max_source_matches"))
 DETAIL_LEVELS = ("full", "signature")
 _PYPI_FAILURES = (httpx.HTTPError, ValueError, OSError, tarfile.TarError, zipfile.BadZipFile)
 _GITHUB_FAILURES = (httpx.HTTPError, ValueError, OSError)
@@ -248,9 +250,12 @@ def _display_path(file: Path, root: Path | None) -> str:
         root: Folder the path should be shown relative to, or None.
 
     Returns:
-        A relative POSIX path if a root is given, else the absolute path.
+        A relative POSIX path if a root is given and the file is inside it, else
+        the absolute path.
     """
-    return file.relative_to(root).as_posix() if root else str(file)
+    if root is None or not file.is_relative_to(root):
+        return str(file)
+    return file.relative_to(root).as_posix()
 
 
 def _definition_fields(
@@ -305,7 +310,7 @@ def format_matches(
         provenance: Fields added to every result (source, version, ...).
 
     Returns:
-        The result dict, with an "error" key if nothing matched.
+        The result dict; if nothing matched, status "not_found" with a message.
     """
     if not matches:
         message = (
@@ -313,7 +318,7 @@ def format_matches(
             f"{source_files.version} ({source_files.source}). It may be named "
             f"differently in this version; try search_source to locate it."
         )
-        return {"error": message, **provenance}
+        return {"status": "not_found", "message": message, **provenance}
     shown = [(_display_path(file, source_files.root), d) for file, d in matches]
     if len(shown) == 1:
         file, definition = shown[0]
@@ -364,10 +369,35 @@ def get_function_source(
     return result
 
 
+def _search_root(paths: list[Path]) -> Path | None:
+    """Find the folder that installed file paths are shown relative to.
+
+    This is the site-packages folder if the files live in one; otherwise the folder
+    all files share.
+
+    Args:
+        paths: Absolute paths of the installed Python files.
+
+    Returns:
+        The folder, or None if there is no common folder (e.g. several drives).
+    """
+    names = set(setting("paths", "site_packages_folders"))
+    for index, part in enumerate(paths[0].parts):
+        if part in names:
+            return Path(*paths[0].parts[: index + 1])
+    try:
+        return Path(os.path.commonpath([str(path.parent) for path in paths]))
+    except ValueError:
+        return None
+
+
 def search_source(
     package: str, meta: dict[str, Any], query: str, version: str | None
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Search the source code of a package version for a text string.
+
+    Provenance is stated once for the whole result. Files of the installed package
+    are shown relative to `root`, which is stated once as well.
 
     Args:
         package: Registry key of the package.
@@ -376,16 +406,20 @@ def search_source(
         version: Requested version, or None for the installed version.
 
     Returns:
-        Matching lines (file, line, text) with provenance, or a single dict
-        with a message, status or error.
+        Dict with the provenance (source, version, installed_version, python_executable,
+        ...) and matches (file, line, text); a message if there are no matches. If no
+        source could be opened: a dict with status or error instead.
     """
     source_files, provenance = _open_source(package, meta, version)
     if source_files is None:
-        return [provenance]
+        return provenance
 
+    root = source_files.root or _search_root(source_files.paths)
+    if source_files.source == "local" and root is not None:
+        provenance["root"] = str(root)
     hits = search_files(source_files.paths, query)
-    if not hits:
-        return [{"message": f"No results for '{query}'.", **provenance}]
-    return [
-        {**hit, "file": _display_path(hit["file"], source_files.root), **provenance} for hit in hits
-    ]
+    matches = [{**hit, "file": _display_path(hit["file"], root)} for hit in hits]
+    result = {**provenance, "matches": matches}
+    if not matches:
+        result["message"] = f"No results for '{query}'."
+    return result

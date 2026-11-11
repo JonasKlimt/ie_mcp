@@ -18,11 +18,12 @@ from typing import Any
 import httpx
 
 from .cache import cache_root
+from .config import setting
 
 _GITHUB_API = "https://api.github.com"
 _GITHUB_RAW = "https://raw.githubusercontent.com"
-MAX_REPOSITORY_FILES = 500
-DOWNLOAD_WORKERS = 8
+MAX_REPOSITORY_FILES = int(setting("limits", "max_repository_files"))
+DOWNLOAD_WORKERS = int(setting("workers", "download"))
 
 _synced_refs: set[tuple[str, str]] = set()  # moving refs downloaded in this run
 
@@ -101,6 +102,46 @@ def list_tags(github_repo: str) -> list[str]:
     owner, repo = github_repo.split("/", 1)
     data = _get(f"{_GITHUB_API}/repos/{owner}/{repo}/tags", params={"per_page": 100})
     return [item["name"] for item in data]
+
+
+def list_releases(github_repo: str) -> list[dict[str, Any]]:
+    """List the published (non-draft) releases of a GitHub repository, newest first.
+
+    Args:
+        github_repo: Repository in "owner/repo" format.
+
+    Returns:
+        Release dicts with tag_name, name, published_at, prerelease and body.
+
+    Raises:
+        httpx.HTTPError: If the request fails or the rate limit is exceeded.
+    """
+    owner, repo = github_repo.split("/", 1)
+    data = _get(f"{_GITHUB_API}/repos/{owner}/{repo}/releases", params={"per_page": 100})
+    return [release for release in data if not release.get("draft")]
+
+
+def fetch_raw_text(github_repo: str, ref: str, path: str) -> str | None:
+    """Download one text file of a repository at a git ref.
+
+    Args:
+        github_repo: Repository in "owner/repo" format.
+        ref: Tag, branch, commit or "HEAD".
+        path: Repository-relative path of the file.
+
+    Returns:
+        The file text, or None if the file does not exist at that ref.
+
+    Raises:
+        httpx.HTTPError: For any failure other than "not found".
+    """
+    response = httpx.get(
+        f"{_GITHUB_RAW}/{github_repo}/{ref}/{path}", follow_redirects=True, timeout=20.0
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.text
 
 
 def resolve_version_to_tag(github_repo: str, version: str) -> str | None:

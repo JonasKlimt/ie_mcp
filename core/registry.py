@@ -9,8 +9,11 @@ docs root, and section URLs.
 from __future__ import annotations
 
 import importlib
+import logging
 import re
 from pathlib import Path
+
+LOGGER = logging.getLogger("ie_mcp")
 
 
 class PackageRegistry:
@@ -36,7 +39,8 @@ class PackageRegistry:
                 module = importlib.import_module(f"packages.{pkg_dir.name}.metadata")
                 self._packages[pkg_dir.name] = {"metadata": module.METADATA}
             except Exception as exc:  # noqa: BLE001
-                print(f"[ie-mcp] Warning: could not load package '{pkg_dir.name}': {exc}")
+                # never print: stdout is the MCP protocol channel
+                LOGGER.warning("Could not load package '%s': %s", pkg_dir.name, exc)
 
     # ------------------------------------------------------------------
     # Public API

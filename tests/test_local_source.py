@@ -172,11 +172,15 @@ def test_name_with_several_matches_lists_them_without_code() -> None:
 
 
 def test_installed_search() -> None:
-    results = source_lookup.search_source("httpx", HTTPX, "def create_ssl_context", None)
+    result = source_lookup.search_source("httpx", HTTPX, "def create_ssl_context", None)
 
-    assert results[0]["source"] == "local"
-    assert results[0]["line"] > 0
-    assert "create_ssl_context" in results[0]["text"]
+    assert result["source"] == "local"
+    assert Path(result["root"]).is_dir()
+    first = result["matches"][0]
+    assert first["line"] > 0
+    assert "create_ssl_context" in first["text"]
+    assert first["file"].startswith("httpx/")  # relative to root, provenance not repeated
+    assert "source" not in first
 
 
 def test_unknown_detail_is_rejected() -> None:
@@ -185,9 +189,9 @@ def test_unknown_detail_is_rejected() -> None:
 
 
 @pytest.mark.parametrize("name", ["no_such_function_anywhere", "Client.no_such_method"])
-def test_missing_name_is_an_error_with_provenance(name: str) -> None:
+def test_missing_name_is_not_found_with_provenance(name: str) -> None:
     result = source_lookup.get_function_source("httpx", HTTPX, name, None, "full")
 
-    assert "not found" in result["error"]
+    assert result["status"] == "not_found" and "not found" in result["message"]
     assert result["source"] == "local"
     assert result["version"] == installed_version("httpx")

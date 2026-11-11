@@ -35,6 +35,7 @@ def fake_environment(folder: Path) -> Path:
     python = folder / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     python.parent.mkdir(parents=True)
     python.write_bytes(b"")
+    (folder / "pyvenv.cfg").write_text("home = /somewhere\n", encoding="utf-8")
     return python
 
 
@@ -155,3 +156,65 @@ def test_timeout_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(environment, "SUBPROCESS_TIMEOUT_SECONDS", 0.2)
     with pytest.raises(TargetEnvironmentError, match="did not answer"):
         environment.run_in_target("import time; time.sleep(5)", {})
+
+
+def test_broken_project_venv_is_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project"
+    python = fake_environment(project / ".venv")
+    (project / ".venv" / "pyvenv.cfg").unlink()  # e.g. a venv copied by a sync tool
+    monkeypatch.setenv(environment.PROJECT_VARIABLE, str(project))
+
+    assert python.is_file()
+    assert environment.resolve_target_python() == (sys.executable, environment.SERVER_ORIGIN)
+
+
+def test_conda_environment_is_recognised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    folder = tmp_path / "conda-env"
+    python = fake_environment(folder)
+    (folder / "pyvenv.cfg").unlink()
+    (folder / "conda-meta").mkdir()
+    monkeypatch.setenv("CONDA_PREFIX", str(folder))
+
+    assert environment.resolve_target_python() == (str(python), "CONDA_PREFIX")
+
+
+@pytest.mark.parametrize("name", ["python3.12", "Python3", "python"])
+def test_python_file_names_are_accepted(tmp_path: Path, name: str) -> None:
+    file = tmp_path / (name + (".exe" if sys.platform == "win32" else ""))
+    file.write_bytes(b"")
+
+    assert environment.resolve_python_path(str(file)) == str(file)
+
+
+def test_other_executables_are_refused(tmp_path: Path) -> None:
+    program = tmp_path / "calc.exe"
+    program.write_bytes(b"")
+
+    with pytest.raises(TargetEnvironmentError, match="not a Python interpreter"):
+        environment.resolve_python_path(str(program))
+    with pytest.raises(TargetEnvironmentError, match="Network paths"):
+        environment.resolve_python_path("\\\\server\\share\\python.exe")
+    with pytest.raises(TargetEnvironmentError, match="Network paths"):
+        environment.resolve_python_path("//server/share/python")
+
+
+def test_override_applies_inside_the_block_only(tmp_path: Path) -> None:
+    python = fake_environment(tmp_path / "env")
+    outside = environment.resolve_target_python()
+
+    with environment.python_override(str(tmp_path / "env")):
+        assert environment.resolve_target_python() == (str(python), environment.OVERRIDE_ORIGIN)
+    with environment.python_override(None):
+        assert environment.resolve_target_python() == outside
+
+    assert environment.resolve_target_python() == outside
+
+
+def test_override_beats_the_selected_environment(tmp_path: Path) -> None:
+    selected = fake_environment(tmp_path / "selected")
+    other = fake_environment(tmp_path / "other")
+    environment.select_target_python(str(selected))
+
+    with environment.python_override(str(other)):
+        assert environment.resolve_target_python()[0] == str(other)
+    assert environment.resolve_target_python()[0] == str(selected)

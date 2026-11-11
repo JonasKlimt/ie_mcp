@@ -10,20 +10,29 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
+from .config import setting
+
 TARGET_VARIABLE = "IE_MCP_TARGET_PYTHON"
 SELECTED_ORIGIN = "set_python_environment"
+OVERRIDE_ORIGIN = "python_executable argument"
 SERVER_ORIGIN = "sys.executable"
 ACTIVE_ENVIRONMENT_VARIABLES = ("VIRTUAL_ENV", "CONDA_PREFIX")
 PROJECT_VARIABLE = "CLAUDE_PROJECT_DIR"  # set by Claude Code for MCP servers
 PROJECT_ENVIRONMENT_FOLDERS = (".venv", "venv")
 # Where python sits inside an environment folder: conda on Windows, venv on Windows, POSIX.
 _PYTHON_LOCATIONS = ("python.exe", "Scripts/python.exe", "bin/python")
-SUBPROCESS_TIMEOUT_SECONDS = 30.0
+SUBPROCESS_TIMEOUT_SECONDS = float(setting("timeouts", "target_python_seconds"))
+# File names accepted as a Python interpreter: python, python3, python3.12, python.exe.
+_PYTHON_NAME = re.compile(r"python(\d+(\.\d+)*)?(\.exe)?", re.IGNORECASE)
 
 # Runs inside the target interpreter. Standard library only.
 _VERSIONS_SCRIPT = """
@@ -70,6 +79,7 @@ _environment_cache: dict[str, dict[str, Any]] = {}
 _distribution_cache: dict[tuple[str, str], dict[str, Any]] = {}
 _registered_names: set[str] = set()  # read together in one subprocess
 _selected_python: str | None = None  # chosen with set_python_environment
+_override_python: ContextVar[str | None] = ContextVar("ie_mcp_python_override", default=None)
 
 
 class TargetEnvironmentError(RuntimeError):
@@ -92,6 +102,38 @@ def python_in_folder(folder: Path) -> str | None:
     return None
 
 
+def resolve_python_path(path: str) -> str:
+    """Check a user-supplied path and turn it into the path of a Python executable.
+
+    Only files named like a Python interpreter are accepted, and network paths are
+    refused, because the file is started as a program.
+
+    Args:
+        path: Python executable, or root folder of a venv or conda environment.
+
+    Returns:
+        Path of the Python executable.
+
+    Raises:
+        TargetEnvironmentError: If the path holds no Python executable.
+    """
+    cleaned = Path(path.strip().strip("\"'")).expanduser()
+    if str(cleaned).startswith(("\\\\", "//")):
+        raise TargetEnvironmentError(f"Network paths are not accepted as a Python path: '{path}'.")
+    python = python_in_folder(cleaned) if cleaned.is_dir() else str(cleaned)
+    if python is None or not Path(python).is_file():
+        raise TargetEnvironmentError(
+            f"No Python executable found at '{path}'. Pass the full path of the python "
+            f"executable, or the root folder of a venv or conda environment."
+        )
+    if not _PYTHON_NAME.fullmatch(Path(python).name):
+        raise TargetEnvironmentError(
+            f"'{path}' is not a Python interpreter (expected a file named python, "
+            f"python3, python3.12 or python.exe)."
+        )
+    return python
+
+
 def select_target_python(path: str) -> str:
     """Choose the environment to inspect for the rest of the server run.
 
@@ -102,18 +144,45 @@ def select_target_python(path: str) -> str:
         Path of the selected Python executable.
 
     Raises:
-        TargetEnvironmentError: If the path holds no Python executable.
+        TargetEnvironmentError: If the path holds no usable Python executable.
     """
     global _selected_python
-    cleaned = Path(path.strip().strip("\"'")).expanduser()
-    python = python_in_folder(cleaned) if cleaned.is_dir() else str(cleaned)
-    if python is None or not Path(python).is_file():
-        raise TargetEnvironmentError(
-            f"No Python executable found at '{path}'. Pass the full path of the python "
-            f"executable, or the root folder of a venv or conda environment."
-        )
-    _selected_python = python
-    return python
+    _selected_python = resolve_python_path(path)
+    return _selected_python
+
+
+@contextmanager
+def python_override(path: str | None) -> Iterator[None]:
+    """Inspect another interpreter for the calls made inside the with block.
+
+    The server-wide choice of set_python_environment stays unchanged.
+
+    Args:
+        path: Python executable or environment folder, or None to change nothing.
+
+    Raises:
+        TargetEnvironmentError: If the path holds no usable Python executable.
+    """
+    if not path:
+        yield
+        return
+    token = _override_python.set(resolve_python_path(path))
+    try:
+        yield
+    finally:
+        _override_python.reset(token)
+
+
+def _is_environment_folder(folder: Path) -> bool:
+    """Tell a working venv or conda environment from a leftover or broken folder.
+
+    Args:
+        folder: Root folder of the candidate environment.
+
+    Returns:
+        True if the folder has a pyvenv.cfg (venv) or a conda-meta folder (conda).
+    """
+    return (folder / "pyvenv.cfg").is_file() or (folder / "conda-meta").is_dir()
 
 
 def _active_environment() -> tuple[str, str] | None:
@@ -127,6 +196,8 @@ def _active_environment() -> tuple[str, str] | None:
     for variable in ACTIVE_ENVIRONMENT_VARIABLES:
         folder = os.environ.get(variable, "").strip()
         if not folder or Path(folder).resolve() == Path(sys.prefix).resolve():
+            continue
+        if not _is_environment_folder(Path(folder)):
             continue
         python = python_in_folder(Path(folder))
         if python:
@@ -143,6 +214,8 @@ def _project_environment() -> tuple[str, str] | None:
     project = os.environ.get(PROJECT_VARIABLE, "").strip()
     for folder in dict.fromkeys(Path(p) for p in (project, os.getcwd()) if p):
         for name in PROJECT_ENVIRONMENT_FOLDERS:
+            if not _is_environment_folder(folder / name):
+                continue  # e.g. a .venv copied without pyvenv.cfg
             python = python_in_folder(folder / name)
             if python and Path(folder / name).resolve() != Path(sys.prefix).resolve():
                 return python, f"{name} folder in {folder}"
@@ -152,13 +225,17 @@ def _project_environment() -> tuple[str, str] | None:
 def resolve_target_python() -> tuple[str, str]:
     """Find the interpreter whose environment should be inspected.
 
-    Order: set_python_environment, IE_MCP_TARGET_PYTHON, an active venv or conda
-    environment, a .venv folder in the project, then the server's own Python.
+    Order: the python_executable argument of the current call, set_python_environment,
+    IE_MCP_TARGET_PYTHON, an active venv or conda environment, a working .venv folder
+    in the project, then the server's own Python.
 
     Returns:
         The interpreter path and where it came from, e.g. "set_python_environment",
         "IE_MCP_TARGET_PYTHON", "VIRTUAL_ENV" or "sys.executable" (SERVER_ORIGIN).
     """
+    override = _override_python.get()
+    if override:
+        return override, OVERRIDE_ORIGIN
     if _selected_python:
         return _selected_python, SELECTED_ORIGIN
     configured = os.environ.get(TARGET_VARIABLE, "").strip()
@@ -178,8 +255,8 @@ def select_environment_hint() -> str:
         "Find the Python interpreter of the file, notebook or project the user works on "
         "(the selected interpreter or kernel; or run "
         '`python -c "import sys; print(sys.executable)"` in the project\'s environment) '
-        "and call set_python_environment(path). If you cannot find it, ask the user "
-        "which environment to use."
+        "and call set_python_environment(path), or pass it as python_executable. If you "
+        "cannot find it, ask the user which environment to use."
     )
 
 
